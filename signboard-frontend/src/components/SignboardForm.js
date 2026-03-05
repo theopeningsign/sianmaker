@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 
 const SignboardForm = ({ formData, onFormDataChange, section = 'full' }) => {
+  const bgColorInputRef = useRef(null);
+  const textColorInputRef = useRef(null);
 
   const handleChange = (field, value) => {
     const newFormData = {
@@ -293,18 +295,28 @@ const SignboardForm = ({ formData, onFormDataChange, section = 'full' }) => {
           <label className="block text-sm font-medium text-gray-300 mb-2">
             배경색 *
           </label>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            {/* 실제 선택된 색으로 가득 채운 미리보기 칸 — 클릭 시 색상 팝업 */}
+            <button
+              type="button"
+              onClick={() => bgColorInputRef.current?.click()}
+              className="w-8 h-10 rounded-lg border border-white/30 cursor-pointer shrink-0"
+              style={{ backgroundColor: formData.bgColor || '#6B2D8F' }}
+              title={formData.bgColor}
+            />
             <input
+              ref={bgColorInputRef}
               type="color"
               value={formData.bgColor}
               onChange={(e) => handleChange('bgColor', e.target.value)}
-              className="w-16 h-12 border border-white/20 rounded-lg cursor-pointer bg-transparent"
+              className="sr-only"
+              aria-hidden="true"
             />
             <input
               type="text"
               value={formData.bgColor}
               onChange={(e) => handleChange('bgColor', e.target.value)}
-              className="flex-1 bg-transparent border border-white/20 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none transition-colors"
+              className="w-24 bg-transparent border border-white/20 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none transition-colors"
               placeholder="#6B2D8F"
             />
           </div>
@@ -315,18 +327,28 @@ const SignboardForm = ({ formData, onFormDataChange, section = 'full' }) => {
           <label className="block text-sm font-medium text-gray-300 mb-2">
             글자색 *
           </label>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            {/* 실제 선택된 색으로 가득 채운 미리보기 칸 — 클릭 시 색상 팝업 */}
+            <button
+              type="button"
+              onClick={() => textColorInputRef.current?.click()}
+              className="w-8 h-10 rounded-lg border border-white/30 cursor-pointer shrink-0"
+              style={{ backgroundColor: formData.textColor || '#FFFFFF' }}
+              title={formData.textColor}
+            />
             <input
+              ref={textColorInputRef}
               type="color"
               value={formData.textColor}
               onChange={(e) => handleChange('textColor', e.target.value)}
-              className="w-16 h-12 border border-white/20 rounded-lg cursor-pointer bg-transparent"
+              className="sr-only"
+              aria-hidden="true"
             />
             <input
               type="text"
               value={formData.textColor}
               onChange={(e) => handleChange('textColor', e.target.value)}
-              className="flex-1 bg-transparent border border-white/20 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none transition-colors"
+              className="w-24 bg-transparent border border-white/20 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none transition-colors"
               placeholder="#FFFFFF"
             />
           </div>
