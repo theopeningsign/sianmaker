@@ -1,0 +1,58 @@
+# Python
+signboard-backend/venv/
+signboard-backend/__pycache__/
+signboard-backend/*.pyc
+signboard-backend/debug.log
+signboard-backend/error_log.txt
+*.pyc
+__pycache__/
+
+# Node
+signboard-frontend/node_modules/
+signboard-frontend/build/
+signboard-frontend/.pnp
+signboard-frontend/.pnp.js
+
+# IDE
+.history/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment
+.env
+.env.local
+signboard-backend/token.json
+signboard-backend/credentials.json
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Pix2Pix 체크포인트 (Google Drive로 별도 배포)
+signboard-backend/checkpoints/
+
+# Phase 2 학습 데이터 (이미지 파일은 제외)
+signboard-backend/phase2_data/real_photos/
+signboard-backend/phase2_data/phase1_output/
+signboard-backend/phase2_data/paired_data/
+
+# 이미지 파일 (일반)
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+*.webp
+
