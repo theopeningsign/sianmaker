@@ -638,11 +638,18 @@ function App() {
                     const t = Array.isArray(transforms) ? transforms.find((tr) => tr.id === sb.id) : null;
                     if (!t) return sb;
                     const updatedFormData = { ...sb.formData };
-                    if (t.fontSize !== undefined) updatedFormData.fontSize = t.fontSize;
                     if (t.textPositionX !== undefined) updatedFormData.textPositionX = t.textPositionX;
                     if (t.textPositionY !== undefined) updatedFormData.textPositionY = t.textPositionY;
                     if (t.rotation !== undefined) updatedFormData.rotation = t.rotation;
-                    return { ...sb, formData: updatedFormData };
+                    // 새 polygon points가 있으면 selectedArea도 업데이트 (이후 편집에도 반영)
+                    let updatedSelectedArea = sb.selectedArea;
+                    if (t.newPolygonPoints) {
+                      updatedSelectedArea = {
+                        type: 'polygon',
+                        points: t.newPolygonPoints.map(([x, y]) => ({ x, y })),
+                      };
+                    }
+                    return { ...sb, formData: updatedFormData, selectedArea: updatedSelectedArea };
                   });
                   setSignboards(updatedSignboards);
                   const signboardsPayload = [];
@@ -652,8 +659,12 @@ function App() {
                     let signboardImageBase64 = '';
                     if (sbForm.logo) logoBase64 = await imageToBase64(sbForm.logo);
                     if (sbForm.signboardImage) signboardImageBase64 = await imageToBase64(sbForm.signboardImage);
+                    // transform에 newPolygonPoints가 있으면 그걸 사용 (이동/회전 반영)
+                    const sbTransform = Array.isArray(transforms) ? transforms.find((tr) => tr.id === sb.id) : null;
                     let points;
-                    if (sb.selectedArea.type === 'polygon') {
+                    if (sbTransform?.newPolygonPoints) {
+                      points = sbTransform.newPolygonPoints;
+                    } else if (sb.selectedArea.type === 'polygon') {
                       points = sb.selectedArea.points.map((p) => [p.x, p.y]);
                     } else {
                       points = [[sb.selectedArea.x, sb.selectedArea.y],[sb.selectedArea.x + sb.selectedArea.width, sb.selectedArea.y],[sb.selectedArea.x + sb.selectedArea.width, sb.selectedArea.y + sb.selectedArea.height],[sb.selectedArea.x, sb.selectedArea.y + sb.selectedArea.height]];
@@ -676,10 +687,16 @@ function App() {
                   }
                   const formDataToSend = new FormData();
                   formDataToSend.append('building_photo', buildingBase64);
-                  const firstArea = updatedSignboards[0].selectedArea;
-                  const firstPoints = firstArea.type === 'polygon'
-                    ? firstArea.points.map((p) => [p.x, p.y])
-                    : [[firstArea.x, firstArea.y],[firstArea.x + firstArea.width, firstArea.y],[firstArea.x + firstArea.width, firstArea.y + firstArea.height],[firstArea.x, firstArea.y + firstArea.height]];
+                  const firstTransform = Array.isArray(transforms) ? transforms.find((tr) => tr.id === updatedSignboards[0].id) : null;
+                  let firstPoints;
+                  if (firstTransform?.newPolygonPoints) {
+                    firstPoints = firstTransform.newPolygonPoints;
+                  } else {
+                    const firstArea = updatedSignboards[0].selectedArea;
+                    firstPoints = firstArea.type === 'polygon'
+                      ? firstArea.points.map((p) => [p.x, p.y])
+                      : [[firstArea.x, firstArea.y],[firstArea.x + firstArea.width, firstArea.y],[firstArea.x + firstArea.width, firstArea.y + firstArea.height],[firstArea.x, firstArea.y + firstArea.height]];
+                  }
                   formDataToSend.append('polygon_points', JSON.stringify(firstPoints));
                   formDataToSend.append('signboards', JSON.stringify(signboardsPayload));
                   const firstForm = updatedSignboards[0].formData;

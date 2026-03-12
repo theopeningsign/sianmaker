@@ -181,20 +181,27 @@ const ResultViewer = ({
     };
   });
 
-  // 이미지 크기 추적
+  // 이미지 크기 추적 (imageRef 직접 사용)
   useEffect(() => {
-    if (results && containerRef.current) {
-      const img = containerRef.current.querySelector('img');
-      if (img) {
-        img.onload = () => {
-          setImageSize({ width: img.naturalWidth, height: img.naturalHeight });
-        };
-        if (img.complete) {
-          setImageSize({ width: img.naturalWidth, height: img.naturalHeight });
-        }
+    if (!results) return;
+    const img = imageRef.current;
+    if (!img) return;
+
+    const updateSize = () => {
+      if (img.naturalWidth > 1 && img.naturalHeight > 1) {
+        setImageSize({ width: img.naturalWidth, height: img.naturalHeight });
       }
+    };
+
+    // 이미 로드된 경우
+    if (img.complete && img.naturalWidth > 1) {
+      updateSize();
+    } else {
+      // 아직 로드 중인 경우
+      img.addEventListener('load', updateSize);
+      return () => img.removeEventListener('load', updateSize);
     }
-  }, [results]);
+  }, [results, viewMode]); // viewMode 변경 시에도 재확인
 
   // 마우스 휠 이벤트 등록
   useEffect(() => {
@@ -385,9 +392,9 @@ const ResultViewer = ({
           />
           {/* 간판 편집 오버레이 (상호 위치 편집 포함) */}
           {showTransform && signboards.length > 0 && (
-            <div 
-              className="absolute inset-0 pointer-events-none" 
-              style={{ 
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{
                 zIndex: 50,
                 transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
                 transformOrigin: '0 0'

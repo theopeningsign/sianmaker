@@ -1,430 +1,469 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 
-const SignboardTransform = ({ 
-  signboards = [], 
+const FONT_FAMILY_MAP = {
+  malgun: "'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif",
+  nanumgothic: "'Nanum Gothic', sans-serif",
+  nanumbarungothic: "'Nanum Barun Gothic', sans-serif",
+  gulim: 'Gulim, sans-serif',
+  batang: 'Batang, serif',
+};
+
+// 모서리 핸들 설정: xFactor/yFactor = 드래그 방향에 따른 크기 변화 부호
+const HANDLE_CONFIG = [
+  { id: 'nw', left: '0%',   top: '0%',   xFactor: -1, yFactor: -1, cursor: 'nw-resize' },
+  { id: 'ne', left: '100%', top: '0%',   xFactor:  1, yFactor: -1, cursor: 'ne-resize' },
+  { id: 'se', left: '100%', top: '100%', xFactor:  1, yFactor:  1, cursor: 'se-resize' },
+  { id: 'sw', left: '0%',   top: '100%', xFactor: -1, yFactor:  1, cursor: 'sw-resize' },
+];
+
+/** 2D 벡터를 angleDeg만큼 회전 */
+const rotateVec = (x, y, deg) => {
+  const r = (deg * Math.PI) / 180;
+  return {
+    x: x * Math.cos(r) - y * Math.sin(r),
+    y: x * Math.sin(r) + y * Math.cos(r),
+  };
+};
+
+const SignboardTransform = ({
+  signboards = [],
   originalSignboards = [],
   imageSize = { width: 1, height: 1 },
-  selectedArea = null,
-  textSizeInfo = null,
   onTransformChange,
-  onApply,
-  onSelectSignboard
 }) => {
   const [selectedId, setSelectedId] = useState(null);
   const [transforms, setTransforms] = useState({});
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragMode, setDragMode] = useState(null); // 'move', 'resize', 'rotate'
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [dragState, setDragState] = useState(null);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const containerRef = useRef(null);
-  const prevFontSizesRef = useRef({}); // 이전 fontSize 추적
 
-  // 각 간판의 초기 변환 상태 설정 - imageSize 기준 퍼센트로 저장
-  // 현재 fontSize에 맞춰 박스 크기를 조정
+  // 컨테이너 크기 추적 (폰트 사이즈 계산용)
   useEffect(() => {
-    if (imageSize.width === 1 || imageSize.height === 1) return; // 이미지 크기가 아직 로드되지 않음
-    
-    const initialTransforms = {};
-    let hasChanges = false;
-    
-    signboards.forEach((signboard) => {
-      const existingTransform = transforms[signboard.id];
-      const points = signboard.polygon_points || [];
-      
-      if (points.length >= 4) {
-        // originalSignboards에서 현재 fontSize와 originalFontSize 가져오기
-        const originalSignboard = originalSignboards.find(s => s.id === signboard.id);
-        const currentFontSize = originalSignboard?.formData?.fontSize || 100;
-        const storedOriginalFontSize = originalSignboard?.formData?.originalFontSize || currentFontSize;
-        const prevFontSize = prevFontSizesRef.current[signboard.id];
-        
-        // 기존 transform이 있고, fontSize가 실제로 변경되었다면 박스 크기를 비례 조정
-        if (existingTransform && prevFontSize && Math.abs(prevFontSize - currentFontSize) > 0.1) {
-          // fontSize 비율 계산
-          const fontSizeRatio = currentFontSize / prevFontSize;
-          
-          // 기존 박스 크기에 비율 적용
-          const adjustedWidth = existingTransform.width * fontSizeRatio;
-          const adjustedHeight = existingTransform.height * fontSizeRatio;
-          
-          initialTransforms[signboard.id] = {
-            ...existingTransform,
-            width: adjustedWidth,
-            height: adjustedHeight,
-            fontSize: currentFontSize
-          };
-          prevFontSizesRef.current[signboard.id] = currentFontSize;
-          hasChanges = true;
-        } else if (!existingTransform) {
-          // 처음 초기화하는 경우 - 폴리곤 점으로부터 박스 크기 계산
-          const xs = points.map(p => p[0]);
-          const ys = points.map(p => p[1]);
-          const minX = Math.min(...xs);
-          const maxX = Math.max(...xs);
-          const minY = Math.min(...ys);
-          const maxY = Math.max(...ys);
-          
-          const centerX = (minX + maxX) / 2;
-          const centerY = (minY + maxY) / 2;
-          const baseWidth = maxX - minX;
-          const baseHeight = maxY - minY;
-          
-          // 원본 fontSize 저장 (formData에서 가져오거나, 없으면 현재 fontSize 사용)
-          const originalFontSize = storedOriginalFontSize;
-
-          // 현재 fontSize가 원본 fontSize에서 얼마나 달라졌는지 비율 계산
-          // 예) originalFontSize=100, currentFontSize=80 이면 ratio=0.8 → 박스도 0.8배
-          const fontSizeRatio = originalFontSize !== 0 ? (currentFontSize / originalFontSize) : 1;
-          
-          // 박스 크기를 간판 영역(baseWidth/Height)에 fontSize 비율을 곱해서 설정
-          const adjustedBaseWidth = baseWidth * fontSizeRatio;
-          const adjustedBaseHeight = baseHeight * fontSizeRatio;
-          
-          initialTransforms[signboard.id] = {
-            x: (centerX / imageSize.width) * 100,
-            y: (centerY / imageSize.height) * 100,
-            width: (adjustedBaseWidth / imageSize.width) * 100,
-            height: (adjustedBaseHeight / imageSize.height) * 100,
-            rotation: 0,
-            scale: 1,
-            fontSize: currentFontSize,
-            originalFontSize: originalFontSize, // 원본 fontSize 저장 (기준값)
-            originalWidth: baseWidth,           // 기준이 되는 원래 간판 영역 너비
-            originalHeight: baseHeight          // 기준이 되는 원래 간판 영역 높이
-          };
-          prevFontSizesRef.current[signboard.id] = currentFontSize;
-          hasChanges = true;
-        } else {
-          // existingTransform이 있고, 간판 편집을 다시 열었을 때
-          // 사용자가 직접 조절한 박스 크기를 보존해야 함
-          
-          // fontSize가 변경되었을 때만 박스 크기를 재계산
-          // (prevFontSize와 비교하여 실제로 변경되었는지 확인)
-          if (prevFontSize && Math.abs(prevFontSize - currentFontSize) > 0.1) {
-            // prevFontSize가 있고, fontSize가 변경되었을 때만 재계산
-            const fontSizeRatio = currentFontSize / prevFontSize;
-            
-            // 기존 박스 크기에 비율 적용 (사용자가 조절한 크기를 기준으로)
-            const adjustedWidth = existingTransform.width * fontSizeRatio;
-            const adjustedHeight = existingTransform.height * fontSizeRatio;
-            
-            initialTransforms[signboard.id] = {
-              ...existingTransform,
-              width: adjustedWidth,
-              height: adjustedHeight,
-              fontSize: currentFontSize
-            };
-            prevFontSizesRef.current[signboard.id] = currentFontSize;
-            hasChanges = true;
-          } else {
-            // fontSize가 변경되지 않았거나, prevFontSize가 없는 경우
-            // 사용자가 조절한 박스 크기를 그대로 유지 (width/height는 건드리지 않음)
-            
-            // originalWidth/Height가 없으면 설정만 하고, width/height는 유지
-            if (!existingTransform.originalWidth || !existingTransform.originalHeight) {
-              const baseWidth = existingTransform.width * imageSize.width / 100;
-              const baseHeight = existingTransform.height * imageSize.height / 100;
-              initialTransforms[signboard.id] = {
-                ...existingTransform, // 기존 width/height 그대로 유지
-                originalWidth: baseWidth,
-                originalHeight: baseHeight,
-                originalFontSize: storedOriginalFontSize
-              };
-              hasChanges = true;
-            } else {
-              // originalWidth/Height가 이미 있으면 아무것도 하지 않음
-              // 사용자가 조절한 박스 크기를 그대로 유지
-            }
-            
-            if (!prevFontSize) {
-              // transform은 있지만 prevFontSize가 없는 경우 (첫 렌더링)
-              prevFontSizesRef.current[signboard.id] = currentFontSize;
-            }
-          }
-        }
-      }
+    if (!containerRef.current) return;
+    const obs = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      setContainerSize({ width, height });
     });
-    
-    // 변경사항이 있을 때만 업데이트 (무한 루프 방지)
-    if (hasChanges && Object.keys(initialTransforms).length > 0) {
-      setTransforms(prev => ({ ...prev, ...initialTransforms }));
-    }
-  }, [signboards, imageSize, originalSignboards]); // transforms를 의존성에서 제거하여 무한 루프 방지
+    obs.observe(containerRef.current);
+    return () => obs.disconnect();
+  }, []);
 
-  const getTransform = (id) => {
-    return transforms[id] || { 
-      x: 0, 
-      y: 0, 
-      width: 100, 
-      height: 100, 
-      rotation: 0, 
-      scale: 1, 
-      fontSize: 100,
-      textPositionX: 50,
-      textPositionY: 50
-    };
-  };
+  // 간판별 transform 초기화
+  useEffect(() => {
+    if (imageSize.width <= 1 && imageSize.height <= 1) return;
 
-  const updateTransform = (id, updates) => {
-    const newTransforms = {
-      ...transforms,
-      [id]: { ...getTransform(id), ...updates }
-    };
-    setTransforms(newTransforms);
-    if (onTransformChange) {
-      onTransformChange(newTransforms);
-    }
-  };
+    setTransforms(prev => {
+      const next = { ...prev };
+      let changed = false;
 
-  const handleMouseDown = (e, id, mode) => {
-    e.stopPropagation();
-    setSelectedId(id);
-    setIsDragging(true);
-    setDragMode(mode);
-    
-    const rect = containerRef.current.getBoundingClientRect();
-    // 퍼센트로 계산
-    const x = ((e.clientX - rect.left) / rect.width) * 100;
-    const y = ((e.clientY - rect.top) / rect.height) * 100;
-    
-    setDragStart({ x, y, transform: getTransform(id) });
-  };
+      signboards.forEach(sb => {
+        const origSb = originalSignboards.find(s => s.id === sb.id);
+        const formData = origSb?.formData || {};
+        const initRotation = formData.rotation || 0;
 
-  const handleMouseMove = (e) => {
-    if (!isDragging || selectedId === null) return;
+        const pts = sb.polygon_points || [];
+        if (pts.length < 4) return;
 
-    const rect = containerRef.current.getBoundingClientRect();
-    // 퍼센트로 계산
-    const x = ((e.clientX - rect.left) / rect.width) * 100;
-    const y = ((e.clientY - rect.top) / rect.height) * 100;
-    
-    const dx = x - dragStart.x;
-    const dy = y - dragStart.y;
-    const transform = dragStart.transform;
+        const xs = pts.map(p => p[0]);
+        const ys = pts.map(p => p[1]);
+        const areaLeft   = Math.min(...xs);
+        const areaTop    = Math.min(...ys);
+        const areaRight  = Math.max(...xs);
+        const areaBottom = Math.max(...ys);
+        const areaW = areaRight - areaLeft;
+        const areaH = areaBottom - areaTop;
 
-    if (dragMode === 'move') {
-      // 박스 이동: 박스 중심을 기준으로 텍스트 위치(textPositionX/Y) 재계산
-      const newX = transform.x + dx;
-      const newY = transform.y + dy;
+        const existing = next[sb.id];
 
-      // 이미지 좌표계에서 박스 중심 (px)
-      const boxCenterX = (newX / 100) * imageSize.width;
-      const boxCenterY = (newY / 100) * imageSize.height;
-
-      // 간판 영역(노란 박스) 계산 (px)
-      // 단일/복수 간판 공통: 현재 선택된 간판의 polygon_points 기준으로 계산
-      let signboardX = 0;
-      let signboardY = 0;
-      let signboardWidth = imageSize.width;
-      let signboardHeight = imageSize.height;
-
-      const currentSignboard = signboards.find(sb => sb.id === selectedId);
-      if (currentSignboard && currentSignboard.polygon_points && currentSignboard.polygon_points.length >= 4) {
-        const xs = currentSignboard.polygon_points.map(p => p[0]);
-        const ys = currentSignboard.polygon_points.map(p => p[1]);
-        signboardX = Math.min(...xs);
-        signboardY = Math.min(...ys);
-        signboardWidth = Math.max(...xs) - signboardX;
-        signboardHeight = Math.max(...ys) - signboardY;
-      } else if (selectedArea) {
-        if (selectedArea.type === 'polygon' && selectedArea.points.length >= 4) {
-          const xs = selectedArea.points.map(p => p.x);
-          const ys = selectedArea.points.map(p => p.y);
-          signboardX = Math.min(...xs);
-          signboardY = Math.min(...ys);
-          signboardWidth = Math.max(...xs) - signboardX;
-          signboardHeight = Math.max(...ys) - signboardY;
-        } else if (selectedArea.x !== undefined) {
-          signboardX = selectedArea.x;
-          signboardY = selectedArea.y;
-          signboardWidth = selectedArea.width;
-          signboardHeight = selectedArea.height;
+        if (existing) {
+          return; // 이미 초기화된 경우 변경 없음
         }
+
+        // 최초 초기화: 편집 박스 = 실제 간판 polygon 전체 영역
+        const boxW  = (areaW / imageSize.width)  * 100;
+        const boxH  = (areaH / imageSize.height) * 100;
+        const boxCX = ((areaLeft + areaW / 2) / imageSize.width)  * 100;
+        const boxCY = ((areaTop  + areaH / 2) / imageSize.height) * 100;
+
+        next[sb.id] = {
+          x: boxCX,
+          y: boxCY,
+          width:  boxW,
+          height: boxH,
+          rotation: initRotation,
+          // 백엔드 출력 계산을 위한 원래 간판 영역 (이미지 %)
+          _area: {
+            x: (areaLeft / imageSize.width)  * 100,
+            y: (areaTop  / imageSize.height) * 100,
+            w: (areaW    / imageSize.width)  * 100,
+            h: (areaH    / imageSize.height) * 100,
+          },
+        };
+        changed = true;
+      });
+
+      return changed ? next : prev;
+    });
+  }, [signboards, imageSize, originalSignboards]);
+
+  /**
+   * transform → 백엔드 파라미터 변환
+   * - newPolygonPoints: 박스의 4개 모서리를 이미지 픽셀 좌표로 변환
+   *   → 백엔드가 이 좌표로 perspective transform 수행
+   *   → 이동/크기/회전이 모두 polygon에 반영됨
+   * - textPositionX/Y = 50, rotation = 0 (polygon에 이미 반영됨)
+   */
+  const toOutput = useCallback((id, t) => {
+    if (!t) return null;
+
+    // 박스 중심 (이미지 픽셀 좌표)
+    const cxPx = (t.x / 100) * imageSize.width;
+    const cyPx = (t.y / 100) * imageSize.height;
+    const hwPx = (t.width  / 100) * imageSize.width  / 2;
+    const hhPx = (t.height / 100) * imageSize.height / 2;
+
+    // 4개 모서리: TL → TR → BR → BL (회전 적용)
+    const newPolygonPoints = [
+      [-hwPx, -hhPx],
+      [ hwPx, -hhPx],
+      [ hwPx,  hhPx],
+      [-hwPx,  hhPx],
+    ].map(([rx, ry]) => {
+      const rot = rotateVec(rx, ry, t.rotation);
+      return [Math.round(cxPx + rot.x), Math.round(cyPx + rot.y)];
+    });
+
+    return {
+      id,
+      newPolygonPoints,   // 백엔드 polygon_points 업데이트용
+      textPositionX: 50,  // polygon에 위치가 반영됐으므로 중앙 고정
+      textPositionY: 50,
+      rotation: 0,        // polygon에 회전이 반영됐으므로 0
+    };
+  }, [imageSize]);
+
+  // transform 업데이트 + 부모에 알림
+  const updateTransform = useCallback((id, updates) => {
+    setTransforms(prev => {
+      const newT = { ...prev[id], ...updates };
+      const next = { ...prev, [id]: newT };
+
+      if (onTransformChange) {
+        const output = {};
+        Object.keys(next).forEach(tid => {
+          const o = toOutput(parseInt(tid), next[tid]);
+          if (o) output[tid] = o;
+        });
+        onTransformChange(output);
       }
 
-      // 간판 영역 내에서의 텍스트 중심 위치 (px)
-      const textCenterX = boxCenterX - signboardX;
-      const textCenterY = boxCenterY - signboardY;
+      return next;
+    });
+  }, [onTransformChange, toOutput]);
 
-      // 간판 영역 내에서 0~100% 기준의 textPositionX/Y 계산
-      // ※ 실제 텍스트 크기를 정확히 아는 경우에도, 사용자가 느끼기에
-      //   "박스 중심이 간판 안에서 어디쯤이냐"가 더 직관적이어서
-      //   텍스트 크기를 빼지 않고 단순 비율로 계산한다.
-      let textPositionX = (signboardWidth > 0)
-        ? (textCenterX / signboardWidth) * 100
-        : 50;
-      let textPositionY = (signboardHeight > 0)
-        ? (textCenterY / signboardHeight) * 100
-        : 50;
-
-      // 0~100% 범위로 클램프
-      textPositionX = Math.max(0, Math.min(100, textPositionX));
-      textPositionY = Math.max(0, Math.min(100, textPositionY));
-
-      updateTransform(selectedId, {
-        x: newX,
-        y: newY,
-        textPositionX,
-        textPositionY,
-        // originalWidth/Height와 originalFontSize는 유지 (기준값)
-        originalWidth: transform.originalWidth,
-        originalHeight: transform.originalHeight,
-        originalFontSize: transform.originalFontSize
-      });
-    } else if (dragMode === 'resize-se') {
-      // 오른쪽 아래 모서리 - 퍼센트로 계산
-      const newWidth = Math.max(2, transform.width + dx); // 최소 2%
-      const newHeight = Math.max(2, transform.height + dy); // 최소 2%
-      
-      // 크기 변경 비율 계산 (fontSize 조정용)
-      const widthScale = newWidth / transform.width;
-      const heightScale = newHeight / transform.height;
-      const avgScale = (widthScale + heightScale) / 2;
-      
-      // fontSize도 비례 조정
-      const currentFontSize = transform.fontSize || 100;
-      const newFontSize = Math.max(30, Math.min(200, currentFontSize * avgScale));
-      
-      updateTransform(selectedId, {
-        width: newWidth,
-        height: newHeight,
-        x: transform.x + dx / 2,
-        y: transform.y + dy / 2,
-        fontSize: newFontSize, // fontSize도 함께 업데이트
-        // originalWidth/Height와 originalFontSize는 유지 (기준값)
-        originalWidth: transform.originalWidth,
-        originalHeight: transform.originalHeight,
-        originalFontSize: transform.originalFontSize
-      });
-    } else if (dragMode === 'rotate') {
-      // 회전
-      const centerX = transform.x;
-      const centerY = transform.y;
-      const angle = Math.atan2(y - centerY, x - centerX) * (180 / Math.PI);
-      updateTransform(selectedId, {
-        rotation: angle,
-        // originalWidth/Height와 originalFontSize는 유지 (기준값)
-        originalWidth: transform.originalWidth,
-        originalHeight: transform.originalHeight,
-        originalFontSize: transform.originalFontSize
-      });
-    }
-  };
-
-  const handleMouseUp = () => {
-    setIsDragging(false);
-    setDragMode(null);
-  };
-
-  useEffect(() => {
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+  // 마우스 위치 → 컨테이너 기준 % 좌표
+  const getMousePct = useCallback((e) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return { x: 0, y: 0 };
+    return {
+      x: ((e.clientX - rect.left) / rect.width)  * 100,
+      y: ((e.clientY - rect.top)  / rect.height) * 100,
     };
-  }, [isDragging, selectedId, dragStart]);
+  }, []);
+
+  const handleMouseDown = useCallback((e, id, mode) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setSelectedId(id);
+    const pos = getMousePct(e);
+    const t = transforms[id];
+    if (!t) return;
+
+    setDragState({
+      id,
+      mode,
+      startPos: pos,
+      startTransform: { ...t },
+      // 회전 드래그: 시작 각도 기록 (클릭 지점에서 박스 중심까지의 각도)
+      startAngle: mode === 'rotate'
+        ? Math.atan2(pos.y - t.y, pos.x - t.x) * (180 / Math.PI)
+        : 0,
+    });
+  }, [transforms, getMousePct]);
+
+  // 드래그 중 mousemove / mouseup 처리
+  useEffect(() => {
+    if (!dragState) return;
+
+    const onMove = (e) => {
+      const pos = getMousePct(e);
+      const { id, mode, startPos, startTransform: t, startAngle } = dragState;
+      const dx = pos.x - startPos.x;
+      const dy = pos.y - startPos.y;
+
+      if (mode === 'move') {
+        updateTransform(id, { x: t.x + dx, y: t.y + dy });
+
+      } else if (mode === 'rotate') {
+        // 현재 마우스가 박스 중심 기준으로 어느 각도인지 계산
+        const curAngle = Math.atan2(pos.y - t.y, pos.x - t.x) * (180 / Math.PI);
+        updateTransform(id, { rotation: t.rotation + (curAngle - startAngle) });
+
+      } else if (mode.startsWith('resize-')) {
+        const handleId = mode.replace('resize-', '');
+        const handle = HANDLE_CONFIG.find(h => h.id === handleId);
+        if (!handle) return;
+
+        // 드래그 벡터를 박스 로컬 좌표계로 변환 (회전 반영)
+        const local = rotateVec(dx, dy, -t.rotation);
+
+        // 각 핸들의 xFactor/yFactor에 따라 너비/높이 변화량 결정
+        const dw = local.x * handle.xFactor;
+        const dh = local.y * handle.yFactor;
+
+        const newWidth  = Math.max(3, t.width  + dw);
+        const newHeight = Math.max(3, t.height + dh);
+
+        // 중심은 드래그 벡터의 절반만큼 이동 (고정 모서리를 기준으로)
+        // xFactor² = yFactor² = 1 이므로 centerDelta = (local/2) rotated back
+        const centerDelta = rotateVec(local.x / 2, local.y / 2, t.rotation);
+
+        updateTransform(id, {
+          width:  newWidth,
+          height: newHeight,
+          x: t.x + centerDelta.x,
+          y: t.y + centerDelta.y,
+        });
+      }
+    };
+
+    const onUp = () => setDragState(null);
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup',   onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup',   onUp);
+    };
+  }, [dragState, getMousePct, updateTransform]);
 
   return (
     <div
       ref={containerRef}
-      className="absolute inset-0 pointer-events-none"
-      style={{ zIndex: 100 }}
+      className="absolute inset-0"
+      style={{ pointerEvents: 'none', zIndex: 100 }}
       onClick={() => setSelectedId(null)}
     >
-      {signboards.map((signboard) => {
-        const transform = getTransform(signboard.id);
-        const isSelected = selectedId === signboard.id;
-        
-        // transform이 이미 퍼센트로 저장되어 있음 (이미지 전체 기준)
-        const leftPercent = transform.x - transform.width / 2;
-        const topPercent = transform.y - transform.height / 2;
-        const widthPercent = transform.width;
-        const heightPercent = transform.height;
+      {signboards.map(sb => {
+        const t = transforms[sb.id];
+        if (!t) return null;
+        const isSelected = selectedId === sb.id;
+        const isMoving = dragState?.id === sb.id && dragState.mode === 'move';
 
-        // 고스트 텍스트 박스:
-        // - 파란 박스(간판편집 박스) 중심을 기준으로
-        // - 파란 박스 크기의 일정 비율(가로 70%, 세로 60%)로 그려서
-        //   "이 박스 안에 글자가 들어간다"는 감만 명확하게 주는 용도
-        const ghostScaleX = 0.7;
-        const ghostScaleY = 0.6;
-        const ghostWidthPercent = widthPercent * ghostScaleX;
-        const ghostHeightPercent = heightPercent * ghostScaleY;
-        const ghostLeftPercent = transform.x; // 중심 기준
-        const ghostTopPercent = transform.y;  // 중심 기준
+        // formData에서 미리보기 스타일 가져오기
+        const origSb = originalSignboards.find(s => s.id === sb.id);
+        const formData = origSb?.formData || {};
+        const bgColor       = formData.bgColor    || '#1B3A6B';
+        const textColor     = formData.textColor  || '#FFFFFF';
+        const fontFamily    = FONT_FAMILY_MAP[formData.fontFamily] || FONT_FAMILY_MAP.malgun;
+        const fontWeight    = formData.fontWeight  || '700';
+        const textDirection = formData.textDirection || 'horizontal';
+        const isImageMode   = formData.signboardInputType === 'image';
+        const displayText   = sb.text || formData.text || '';
+
+        // 폰트 사이즈: 폭과 높이 모두 고려해서 실제 렌더와 비슷하게
+        const boxWidthPx  = (t.width  / 100) * containerSize.width;
+        const boxHeightPx = (t.height / 100) * containerSize.height;
+
+        // 줄바꿈 처리: 명시적 개행(\n)만 허용
+        const lines = (displayText || '').split('\n');
+        const maxLineLen = Math.max(1, ...lines.map(l => l.length || 1));
+        const lineCount  = lines.length || 1;
+
+        // 높이 기준: 줄 수에 맞게 분배
+        const fontSzByHeight = Math.max(10, (boxHeightPx * 0.82) / lineCount);
+        // 폭 기준: 가장 긴 줄이 폭을 넘지 않도록 (한글 1자 ≈ 1em)
+        const fontSzByWidth  = Math.max(10, (boxWidthPx  * 0.90) / maxLineLen);
+        // 둘 중 작은 값 사용
+        const approxFontSz = Math.min(fontSzByHeight, fontSzByWidth);
+
+        const output = toOutput(sb.id, t);
 
         return (
-          <React.Fragment key={signboard.id}>
-            {/* 파란 변환 박스 */}
+          <React.Fragment key={sb.id}>
+            {/* ── 간판 박스 ── */}
             <div
               style={{
                 position: 'absolute',
-                left: `${leftPercent}%`,
-                top: `${topPercent}%`,
-                width: `${widthPercent}%`,
-                height: `${heightPercent}%`,
-                transform: `rotate(${transform.rotation}deg)`,
+                left: `${t.x}%`,
+                top:  `${t.y}%`,
+                width:  `${t.width}%`,
+                height: `${t.height}%`,
+                transform: `translate(-50%, -50%) rotate(${t.rotation}deg)`,
                 transformOrigin: 'center',
-                border: isSelected ? '2px solid #3B82F6' : '2px dashed rgba(255,255,255,0.3)',
-                cursor: 'move',
+                border: isSelected
+                  ? '2px solid #3B82F6'
+                  : '1px dashed rgba(255,255,255,0.5)',
+                cursor: isMoving ? 'grabbing' : 'grab',
                 pointerEvents: 'auto',
-                zIndex: isSelected ? 10 : 1
+                zIndex: isSelected ? 10 : 1,
+                overflow: 'visible',
+                borderRadius: 3,
+                boxShadow: isSelected
+                  ? '0 0 0 1px rgba(59,130,246,0.3), 0 4px 16px rgba(0,0,0,0.4)'
+                  : '0 2px 6px rgba(0,0,0,0.2)',
               }}
-              onMouseDown={(e) => handleMouseDown(e, signboard.id, 'move')}
-              onClick={(e) => {
-                e.stopPropagation();
-                setSelectedId(signboard.id);
-              }}
+              onMouseDown={(e) => handleMouseDown(e, sb.id, 'move')}
+              onClick={(e) => { e.stopPropagation(); setSelectedId(sb.id); }}
             >
-              {/* 간판 정보 표시 */}
-              <div className="absolute -top-6 left-0 bg-blue-500 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
-                {signboard.text || `간판 ${signboard.id + 1}`}
+              {/* ── 배경 + 텍스트 미리보기 ── */}
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  backgroundColor: bgColor,
+                  opacity: 0.85,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  overflow: 'hidden',
+                  writingMode: textDirection === 'vertical' ? 'vertical-rl' : 'horizontal-tb',
+                  pointerEvents: 'none',
+                  borderRadius: 2,
+                }}
+              >
+                {isImageMode ? (
+                  <span style={{
+                    color: 'rgba(255,255,255,0.5)',
+                    fontSize: Math.max(10, approxFontSz * 0.5),
+                  }}>
+                    📷 이미지
+                  </span>
+                ) : (
+                  <span style={{
+                    color: textColor,
+                    fontFamily,
+                    fontWeight,
+                    fontSize: approxFontSz,
+                    textAlign: 'center',
+                    padding: '4px 8px',
+                    whiteSpace: 'pre',      // 명시적 개행만 허용, 자동 줄바꿈 없음
+                    lineHeight: 1.2,
+                    textShadow: '0 1px 3px rgba(0,0,0,0.5)',
+                  }}>
+                    {displayText || '텍스트를 입력하세요'}
+                  </span>
+                )}
               </div>
 
-              {/* Transform 핸들들 */}
+              {/* ── 상단 라벨 ── */}
+              <div style={{
+                position: 'absolute',
+                top: -22,
+                left: 0,
+                backgroundColor: isSelected ? '#3B82F6' : 'rgba(0,0,0,0.7)',
+                color: 'white',
+                fontSize: 11,
+                padding: '2px 6px',
+                borderRadius: '3px 3px 0 0',
+                whiteSpace: 'nowrap',
+                pointerEvents: 'none',
+                userSelect: 'none',
+              }}>
+                {displayText || `간판 ${sb.id + 1}`}
+              </div>
+
+              {/* ── 선택된 경우: 핸들 표시 ── */}
               {isSelected && (
                 <>
-                  {/* 모서리 핸들 (크기 조절) */}
-                  <div
-                    className="absolute -right-2 -bottom-2 w-4 h-4 bg-blue-500 rounded-full cursor-se-resize"
-                    onMouseDown={(e) => handleMouseDown(e, signboard.id, 'resize-se')}
-                  />
-                  
+                  {/* 회전 연결선 */}
+                  <div style={{
+                    position: 'absolute',
+                    left: '50%',
+                    top: -30,
+                    width: 1,
+                    height: 30,
+                    backgroundColor: '#22C55E',
+                    transform: 'translateX(-50%)',
+                    pointerEvents: 'none',
+                  }} />
+
                   {/* 회전 핸들 */}
                   <div
-                    className="absolute -top-8 left-1/2 -translate-x-1/2 w-4 h-4 bg-green-500 rounded-full cursor-grab"
-                    onMouseDown={(e) => handleMouseDown(e, signboard.id, 'rotate')}
+                    title="드래그해서 회전"
+                    style={{
+                      position: 'absolute',
+                      left: '50%',
+                      top: -30,
+                      transform: 'translate(-50%, -50%)',
+                      width: 14,
+                      height: 14,
+                      borderRadius: '50%',
+                      backgroundColor: '#22C55E',
+                      border: '2px solid white',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.5)',
+                      cursor: 'grab',
+                      zIndex: 20,
+                    }}
+                    onMouseDown={(e) => handleMouseDown(e, sb.id, 'rotate')}
                   />
+
+                  {/* 4개 모서리 리사이즈 핸들 */}
+                  {HANDLE_CONFIG.map(h => (
+                    <div
+                      key={h.id}
+                      style={{
+                        position: 'absolute',
+                        left: h.left,
+                        top:  h.top,
+                        transform: 'translate(-50%, -50%)',
+                        width: 12,
+                        height: 12,
+                        borderRadius: 2,
+                        backgroundColor: 'white',
+                        border: '2px solid #3B82F6',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.5)',
+                        cursor: h.cursor,
+                        zIndex: 20,
+                      }}
+                      onMouseDown={(e) => handleMouseDown(e, sb.id, `resize-${h.id}`)}
+                    />
+                  ))}
                 </>
               )}
             </div>
 
-            {/* 고스트 텍스트 박스 (상호 위치 미리보기 - 파란 박스 안 예상 텍스트 영역) */}
-            {isSelected && (
-              <div
-                style={{
-                  position: 'absolute',
-                  left: `${ghostLeftPercent}%`,
-                  top: `${ghostTopPercent}%`,
-                  width: `${ghostWidthPercent}%`,
-                  height: `${ghostHeightPercent}%`,
-                  transform: 'translate(-50%, -50%)',
-                  border: '1px dashed rgba(168,85,247,0.9)',
-                  backgroundColor: 'rgba(168,85,247,0.18)',
-                  borderRadius: 4,
-                  boxShadow: '0 0 0 1px rgba(255,255,255,0.4)',
-                  pointerEvents: 'none',
-                  zIndex: 15
-                }}
-              />
+            {/* ── 선택 시 정보 HUD ── */}
+            {isSelected && output && (
+              <div style={{
+                position: 'absolute',
+                left: `${t.x}%`,
+                top:  `${t.y + t.height / 2 + 1.5}%`,
+                transform: 'translateX(-50%)',
+                backgroundColor: 'rgba(0,0,0,0.75)',
+                backdropFilter: 'blur(4px)',
+                color: '#ccc',
+                fontSize: 10,
+                padding: '3px 8px',
+                borderRadius: 4,
+                whiteSpace: 'nowrap',
+                pointerEvents: 'none',
+                zIndex: 20,
+                display: 'flex',
+                gap: 10,
+              }}>
+                <span title="글자 크기">↔ {Math.round(output.fontSize)}%</span>
+                <span title="회전 각도">↺ {Math.round(t.rotation)}°</span>
+                <span title="위치 (X, Y)">
+                  ⊕ {Math.round(output.textPositionX)}, {Math.round(output.textPositionY)}
+                </span>
+              </div>
             )}
           </React.Fragment>
         );
       })}
-
-      {/* Transform 정보는 상위 컴포넌트로 전달 */}
     </div>
   );
 };
 
 export default SignboardTransform;
-
