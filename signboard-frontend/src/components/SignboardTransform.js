@@ -8,23 +8,6 @@ const FONT_FAMILY_MAP = {
   batang: 'Batang, serif',
 };
 
-// 모서리 핸들 설정: xFactor/yFactor = 드래그 방향에 따른 크기 변화 부호
-const HANDLE_CONFIG = [
-  { id: 'nw', left: '0%',   top: '0%',   xFactor: -1, yFactor: -1, cursor: 'nw-resize' },
-  { id: 'ne', left: '100%', top: '0%',   xFactor:  1, yFactor: -1, cursor: 'ne-resize' },
-  { id: 'se', left: '100%', top: '100%', xFactor:  1, yFactor:  1, cursor: 'se-resize' },
-  { id: 'sw', left: '0%',   top: '100%', xFactor: -1, yFactor:  1, cursor: 'sw-resize' },
-];
-
-/** 2D 벡터를 angleDeg만큼 회전 */
-const rotateVec = (x, y, deg) => {
-  const r = (deg * Math.PI) / 180;
-  return {
-    x: x * Math.cos(r) - y * Math.sin(r),
-    y: x * Math.sin(r) + y * Math.cos(r),
-  };
-};
-
 const SignboardTransform = ({
   signboards = [],
   originalSignboards = [],
@@ -37,7 +20,7 @@ const SignboardTransform = ({
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const containerRef = useRef(null);
 
-  // 컨테이너 크기 추적 (폰트 사이즈 계산용)
+  // 컨테이너 크기 추적 (SVG 픽셀 좌표 계산용)
   useEffect(() => {
     if (!containerRef.current) return;
     const obs = new ResizeObserver(([entry]) => {
@@ -48,7 +31,7 @@ const SignboardTransform = ({
     return () => obs.disconnect();
   }, []);
 
-  // 간판별 transform 초기화
+  // 간판별 transform 초기화: polygon_points(픽셀) → points(% 배열)
   useEffect(() => {
     if (imageSize.width <= 1 && imageSize.height <= 1) return;
 
@@ -57,88 +40,36 @@ const SignboardTransform = ({
       let changed = false;
 
       signboards.forEach(sb => {
-        const origSb = originalSignboards.find(s => s.id === sb.id);
-        const formData = origSb?.formData || {};
-        const initRotation = formData.rotation || 0;
+        if (next[sb.id]) return; // 이미 초기화된 경우 스킵
 
         const pts = sb.polygon_points || [];
         if (pts.length < 4) return;
 
-        const xs = pts.map(p => p[0]);
-        const ys = pts.map(p => p[1]);
-        const areaLeft   = Math.min(...xs);
-        const areaTop    = Math.min(...ys);
-        const areaRight  = Math.max(...xs);
-        const areaBottom = Math.max(...ys);
-        const areaW = areaRight - areaLeft;
-        const areaH = areaBottom - areaTop;
+        const points = pts.map(([px, py]) => [
+          (px / imageSize.width) * 100,
+          (py / imageSize.height) * 100,
+        ]);
 
-        const existing = next[sb.id];
-
-        if (existing) {
-          return; // 이미 초기화된 경우 변경 없음
-        }
-
-        // 최초 초기화: 편집 박스 = 실제 간판 polygon 전체 영역
-        const boxW  = (areaW / imageSize.width)  * 100;
-        const boxH  = (areaH / imageSize.height) * 100;
-        const boxCX = ((areaLeft + areaW / 2) / imageSize.width)  * 100;
-        const boxCY = ((areaTop  + areaH / 2) / imageSize.height) * 100;
-
-        next[sb.id] = {
-          x: boxCX,
-          y: boxCY,
-          width:  boxW,
-          height: boxH,
-          rotation: initRotation,
-          // 백엔드 출력 계산을 위한 원래 간판 영역 (이미지 %)
-          _area: {
-            x: (areaLeft / imageSize.width)  * 100,
-            y: (areaTop  / imageSize.height) * 100,
-            w: (areaW    / imageSize.width)  * 100,
-            h: (areaH    / imageSize.height) * 100,
-          },
-        };
+        next[sb.id] = { points };
         changed = true;
       });
 
       return changed ? next : prev;
     });
-  }, [signboards, imageSize, originalSignboards]);
+  }, [signboards, imageSize]);
 
-  /**
-   * transform → 백엔드 파라미터 변환
-   * - newPolygonPoints: 박스의 4개 모서리를 이미지 픽셀 좌표로 변환
-   *   → 백엔드가 이 좌표로 perspective transform 수행
-   *   → 이동/크기/회전이 모두 polygon에 반영됨
-   * - textPositionX/Y = 50, rotation = 0 (polygon에 이미 반영됨)
-   */
+  // transform → 백엔드 파라미터 변환
   const toOutput = useCallback((id, t) => {
-    if (!t) return null;
-
-    // 박스 중심 (이미지 픽셀 좌표)
-    const cxPx = (t.x / 100) * imageSize.width;
-    const cyPx = (t.y / 100) * imageSize.height;
-    const hwPx = (t.width  / 100) * imageSize.width  / 2;
-    const hhPx = (t.height / 100) * imageSize.height / 2;
-
-    // 4개 모서리: TL → TR → BR → BL (회전 적용)
-    const newPolygonPoints = [
-      [-hwPx, -hhPx],
-      [ hwPx, -hhPx],
-      [ hwPx,  hhPx],
-      [-hwPx,  hhPx],
-    ].map(([rx, ry]) => {
-      const rot = rotateVec(rx, ry, t.rotation);
-      return [Math.round(cxPx + rot.x), Math.round(cyPx + rot.y)];
-    });
-
+    if (!t?.points) return null;
     return {
       id,
-      newPolygonPoints,   // 백엔드 polygon_points 업데이트용
-      textPositionX: 50,  // polygon에 위치가 반영됐으므로 중앙 고정
+      newPolygonPoints: t.points.map(([x, y]) => [
+        Math.round((x / 100) * imageSize.width),
+        Math.round((y / 100) * imageSize.height),
+      ]),
+      textPositionX: 50,
       textPositionY: 50,
-      rotation: 0,        // polygon에 회전이 반영됐으므로 0
+      rotation: 0,
     };
   }, [imageSize]);
 
@@ -166,8 +97,8 @@ const SignboardTransform = ({
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return { x: 0, y: 0 };
     return {
-      x: ((e.clientX - rect.left) / rect.width)  * 100,
-      y: ((e.clientY - rect.top)  / rect.height) * 100,
+      x: ((e.clientX - rect.left) / rect.width) * 100,
+      y: ((e.clientY - rect.top) / rect.height) * 100,
     };
   }, []);
 
@@ -177,73 +108,74 @@ const SignboardTransform = ({
     setSelectedId(id);
     const pos = getMousePct(e);
     const t = transforms[id];
-    if (!t) return;
+    if (!t?.points) return;
 
     setDragState({
       id,
       mode,
       startPos: pos,
-      startTransform: { ...t },
-      // 회전 드래그: 시작 각도 기록 (클릭 지점에서 박스 중심까지의 각도)
-      startAngle: mode === 'rotate'
-        ? Math.atan2(pos.y - t.y, pos.x - t.x) * (180 / Math.PI)
-        : 0,
+      startPoints: t.points.map(p => [...p]),
     });
   }, [transforms, getMousePct]);
 
-  // 드래그 중 mousemove / mouseup 처리
+  // 드래그 처리
   useEffect(() => {
     if (!dragState) return;
 
     const onMove = (e) => {
       const pos = getMousePct(e);
-      const { id, mode, startPos, startTransform: t, startAngle } = dragState;
+      const { id, mode, startPos, startPoints } = dragState;
       const dx = pos.x - startPos.x;
       const dy = pos.y - startPos.y;
 
       if (mode === 'move') {
-        updateTransform(id, { x: t.x + dx, y: t.y + dy });
+        // 전체 이동
+        updateTransform(id, {
+          points: startPoints.map(([x, y]) => [x + dx, y + dy]),
+        });
 
-      } else if (mode === 'rotate') {
-        // 현재 마우스가 박스 중심 기준으로 어느 각도인지 계산
-        const curAngle = Math.atan2(pos.y - t.y, pos.x - t.x) * (180 / Math.PI);
-        updateTransform(id, { rotation: t.rotation + (curAngle - startAngle) });
+      } else if (mode.startsWith('scale-')) {
+        // 비례 리사이즈: 반대쪽 꼭지점 고정, 전체 스케일
+        const i = parseInt(mode.replace('scale-', ''));
+        const oppIdx = (i + 2) % 4;
+        const opp = startPoints[oppIdx];
+        const origI = startPoints[i];
 
-      } else if (mode.startsWith('resize-')) {
-        const handleId = mode.replace('resize-', '');
-        const handle = HANDLE_CONFIG.find(h => h.id === handleId);
-        if (!handle) return;
+        // 현재 마우스 위치를 드래그 꼭지점의 새 위치로 사용
+        const newIx = pos.x;
+        const newIy = pos.y;
 
-        // 드래그 벡터를 박스 로컬 좌표계로 변환 (회전 반영)
-        const local = rotateVec(dx, dy, -t.rotation);
-
-        // 각 핸들의 xFactor/yFactor에 따라 너비/높이 변화량 결정
-        const dw = local.x * handle.xFactor;
-        const dh = local.y * handle.yFactor;
-
-        const newWidth  = Math.max(3, t.width  + dw);
-        const newHeight = Math.max(3, t.height + dh);
-
-        // 중심은 드래그 벡터의 절반만큼 이동 (고정 모서리를 기준으로)
-        // xFactor² = yFactor² = 1 이므로 centerDelta = (local/2) rotated back
-        const centerDelta = rotateVec(local.x / 2, local.y / 2, t.rotation);
+        const scaleX = (origI[0] - opp[0]) !== 0
+          ? (newIx - opp[0]) / (origI[0] - opp[0])
+          : 1;
+        const scaleY = (origI[1] - opp[1]) !== 0
+          ? (newIy - opp[1]) / (origI[1] - opp[1])
+          : 1;
 
         updateTransform(id, {
-          width:  newWidth,
-          height: newHeight,
-          x: t.x + centerDelta.x,
-          y: t.y + centerDelta.y,
+          points: startPoints.map(([x, y]) => [
+            opp[0] + (x - opp[0]) * scaleX,
+            opp[1] + (y - opp[1]) * scaleY,
+          ]),
         });
+
+      } else if (mode.startsWith('corner-')) {
+        // 개별 꼭지점 이동 (Shift/Ctrl + 드래그)
+        const i = parseInt(mode.replace('corner-', ''));
+        const newPoints = startPoints.map((p, idx) =>
+          idx === i ? [p[0] + dx, p[1] + dy] : [...p]
+        );
+        updateTransform(id, { points: newPoints });
       }
     };
 
     const onUp = () => setDragState(null);
 
     window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup',   onUp);
+    window.addEventListener('mouseup', onUp);
     return () => {
       window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup',   onUp);
+      window.removeEventListener('mouseup', onUp);
     };
   }, [dragState, getMousePct, updateTransform]);
 
@@ -256,11 +188,15 @@ const SignboardTransform = ({
     >
       {signboards.map(sb => {
         const t = transforms[sb.id];
-        if (!t) return null;
-        const isSelected = selectedId === sb.id;
-        const isMoving = dragState?.id === sb.id && dragState.mode === 'move';
+        if (!t?.points || t.points.length < 4) return null;
 
-        // formData에서 미리보기 스타일 가져오기
+        const isSelected = selectedId === sb.id;
+
+        // centroid 계산
+        const cx = t.points.reduce((s, [x]) => s + x, 0) / 4;
+        const cy = t.points.reduce((s, [, y]) => s + y, 0) / 4;
+
+        // formData에서 미리보기 스타일
         const origSb = originalSignboards.find(s => s.id === sb.id);
         const formData = origSb?.formData || {};
         const bgColor       = formData.bgColor    || '#1B3A6B';
@@ -271,72 +207,96 @@ const SignboardTransform = ({
         const isImageMode   = formData.signboardInputType === 'image';
         const displayText   = sb.text || formData.text || '';
 
-        // 폰트 사이즈: 폭과 높이 모두 고려해서 실제 렌더와 비슷하게
-        const boxWidthPx  = (t.width  / 100) * containerSize.width;
-        const boxHeightPx = (t.height / 100) * containerSize.height;
+        // 간판 실제 방향/크기 계산: y 기준으로 정렬 후 상단/하단 엣지 추출
+        const sortedByY = [...t.points].sort((a, b) => a[1] - b[1]);
+        const topPts = [...sortedByY.slice(0, 2)].sort((a, b) => a[0] - b[0]); // [TL, TR]
+        const botPts = [...sortedByY.slice(2, 4)].sort((a, b) => a[0] - b[0]); // [BL, BR]
+        const [tlX, tlY] = topPts[0];
+        const [trX, trY] = topPts[1];
 
-        // 줄바꿈 처리: 명시적 개행(\n)만 허용
+        // 상단 엣지 각도 (텍스트 회전용) — ±45° 이내로 clamp (UX 미리보기 전용)
+        const rawAngleDeg = Math.atan2(
+          (trY - tlY) * containerSize.height / 100,
+          (trX - tlX) * containerSize.width / 100
+        ) * (180 / Math.PI);
+        const angleDeg = Math.max(-45, Math.min(45, rawAngleDeg));
+
+        // 실제 간판 폭/높이 (px)
+        const edgeLen = ([x1, y1], [x2, y2]) => Math.sqrt(
+          ((x2 - x1) * containerSize.width / 100) ** 2 +
+          ((y2 - y1) * containerSize.height / 100) ** 2
+        );
+        const signWidthPx  = (edgeLen(topPts[0], topPts[1]) + edgeLen(botPts[0], botPts[1])) / 2;
+        const signHeightPx = (edgeLen(topPts[0], botPts[0]) + edgeLen(topPts[1], botPts[1])) / 2;
+
         const lines = (displayText || '').split('\n');
         const maxLineLen = Math.max(1, ...lines.map(l => l.length || 1));
-        const lineCount  = lines.length || 1;
-
-        // 높이 기준: 줄 수에 맞게 분배
-        const fontSzByHeight = Math.max(10, (boxHeightPx * 0.82) / lineCount);
-        // 폭 기준: 가장 긴 줄이 폭을 넘지 않도록 (한글 1자 ≈ 1em)
-        const fontSzByWidth  = Math.max(10, (boxWidthPx  * 0.90) / maxLineLen);
-        // 둘 중 작은 값 사용
+        const lineCount = lines.length || 1;
+        const fontSzByHeight = Math.max(10, (signHeightPx * 0.82) / lineCount);
+        const fontSzByWidth  = Math.max(10, (signWidthPx  * 0.90) / maxLineLen);
         const approxFontSz = Math.min(fontSzByHeight, fontSzByWidth);
 
-        const output = toOutput(sb.id, t);
+        // SVG polygon points (픽셀 좌표)
+        const svgPoints = t.points.map(([x, y]) =>
+          `${(x / 100) * containerSize.width},${(y / 100) * containerSize.height}`
+        ).join(' ');
+
+        // CSS clip-path
+        const clipPath = `polygon(${t.points.map(([x, y]) => `${x}% ${y}%`).join(', ')})`;
 
         return (
           <React.Fragment key={sb.id}>
-            {/* ── 간판 박스 ── */}
+            {/* ── SVG 외곽선 ── */}
+            <svg
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                pointerEvents: 'none',
+                overflow: 'visible',
+                zIndex: 1,
+              }}
+            >
+              <polygon
+                points={svgPoints}
+                fill="none"
+                stroke={isSelected ? '#3B82F6' : 'rgba(255,255,255,0.75)'}
+                strokeWidth={isSelected ? 2 : 1.5}
+                strokeDasharray={isSelected ? '' : '6 3'}
+              />
+            </svg>
+
+            {/* ── 배경 + 텍스트 미리보기 (clip-path) ── */}
             <div
               style={{
                 position: 'absolute',
-                left: `${t.x}%`,
-                top:  `${t.y}%`,
-                width:  `${t.width}%`,
-                height: `${t.height}%`,
-                transform: `translate(-50%, -50%) rotate(${t.rotation}deg)`,
-                transformOrigin: 'center',
-                border: isSelected
-                  ? '2px solid #3B82F6'
-                  : '1px dashed rgba(255,255,255,0.5)',
-                cursor: isMoving ? 'grabbing' : 'grab',
-                pointerEvents: 'auto',
-                zIndex: isSelected ? 10 : 1,
-                overflow: 'visible',
-                borderRadius: 3,
-                boxShadow: isSelected
-                  ? '0 0 0 1px rgba(59,130,246,0.3), 0 4px 16px rgba(0,0,0,0.4)'
-                  : '0 2px 6px rgba(0,0,0,0.2)',
+                inset: 0,
+                backgroundColor: bgColor,
+                opacity: 0.82,
+                clipPath,
+                cursor: 'move',
+                pointerEvents: 'all',
+                zIndex: 2,
               }}
               onMouseDown={(e) => handleMouseDown(e, sb.id, 'move')}
               onClick={(e) => { e.stopPropagation(); setSelectedId(sb.id); }}
             >
-              {/* ── 배경 + 텍스트 미리보기 ── */}
+              {/* 텍스트: centroid에 배치 + 간판 기울기 반영 */}
               <div
                 style={{
                   position: 'absolute',
-                  inset: 0,
-                  backgroundColor: bgColor,
-                  opacity: 0.85,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  overflow: 'hidden',
-                  writingMode: textDirection === 'vertical' ? 'vertical-rl' : 'horizontal-tb',
+                  left: `${cx}%`,
+                  top: `${cy}%`,
+                  transform: `translate(-50%, -50%) rotate(${angleDeg}deg)`,
+                  width: signWidthPx,
                   pointerEvents: 'none',
-                  borderRadius: 2,
+                  writingMode: textDirection === 'vertical' ? 'vertical-rl' : 'horizontal-tb',
+                  textAlign: 'center',
                 }}
               >
                 {isImageMode ? (
-                  <span style={{
-                    color: 'rgba(255,255,255,0.5)',
-                    fontSize: Math.max(10, approxFontSz * 0.5),
-                  }}>
+                  <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: Math.max(10, approxFontSz * 0.5) }}>
                     📷 이미지
                   </span>
                 ) : (
@@ -345,120 +305,89 @@ const SignboardTransform = ({
                     fontFamily,
                     fontWeight,
                     fontSize: approxFontSz,
-                    textAlign: 'center',
-                    padding: '4px 8px',
-                    whiteSpace: 'pre',      // 명시적 개행만 허용, 자동 줄바꿈 없음
+                    whiteSpace: 'pre',
                     lineHeight: 1.2,
                     textShadow: '0 1px 3px rgba(0,0,0,0.5)',
+                    padding: '4px 8px',
+                    display: 'block',
                   }}>
                     {displayText || '텍스트를 입력하세요'}
                   </span>
                 )}
               </div>
-
-              {/* ── 상단 라벨 ── */}
-              <div style={{
-                position: 'absolute',
-                top: -22,
-                left: 0,
-                backgroundColor: isSelected ? '#3B82F6' : 'rgba(0,0,0,0.7)',
-                color: 'white',
-                fontSize: 11,
-                padding: '2px 6px',
-                borderRadius: '3px 3px 0 0',
-                whiteSpace: 'nowrap',
-                pointerEvents: 'none',
-                userSelect: 'none',
-              }}>
-                {displayText || `간판 ${sb.id + 1}`}
-              </div>
-
-              {/* ── 선택된 경우: 핸들 표시 ── */}
-              {isSelected && (
-                <>
-                  {/* 회전 연결선 */}
-                  <div style={{
-                    position: 'absolute',
-                    left: '50%',
-                    top: -30,
-                    width: 1,
-                    height: 30,
-                    backgroundColor: '#22C55E',
-                    transform: 'translateX(-50%)',
-                    pointerEvents: 'none',
-                  }} />
-
-                  {/* 회전 핸들 */}
-                  <div
-                    title="드래그해서 회전"
-                    style={{
-                      position: 'absolute',
-                      left: '50%',
-                      top: -30,
-                      transform: 'translate(-50%, -50%)',
-                      width: 14,
-                      height: 14,
-                      borderRadius: '50%',
-                      backgroundColor: '#22C55E',
-                      border: '2px solid white',
-                      boxShadow: '0 2px 4px rgba(0,0,0,0.5)',
-                      cursor: 'grab',
-                      zIndex: 20,
-                    }}
-                    onMouseDown={(e) => handleMouseDown(e, sb.id, 'rotate')}
-                  />
-
-                  {/* 4개 모서리 리사이즈 핸들 */}
-                  {HANDLE_CONFIG.map(h => (
-                    <div
-                      key={h.id}
-                      style={{
-                        position: 'absolute',
-                        left: h.left,
-                        top:  h.top,
-                        transform: 'translate(-50%, -50%)',
-                        width: 12,
-                        height: 12,
-                        borderRadius: 2,
-                        backgroundColor: 'white',
-                        border: '2px solid #3B82F6',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.5)',
-                        cursor: h.cursor,
-                        zIndex: 20,
-                      }}
-                      onMouseDown={(e) => handleMouseDown(e, sb.id, `resize-${h.id}`)}
-                    />
-                  ))}
-                </>
-              )}
             </div>
 
-            {/* ── 선택 시 정보 HUD ── */}
-            {isSelected && output && (
-              <div style={{
+            {/* ── 상단 라벨 ── */}
+            <div style={{
+              position: 'absolute',
+              left: `${Math.min(...t.points.map(p => p[0]))}%`,
+              top: `${sortedByY[0][1]}%`,
+              transform: 'translateY(-100%)',
+              backgroundColor: isSelected ? '#3B82F6' : 'rgba(0,0,0,0.7)',
+              color: 'white',
+              fontSize: 11,
+              padding: '2px 6px',
+              borderRadius: '3px 3px 0 0',
+              whiteSpace: 'nowrap',
+              pointerEvents: 'none',
+              userSelect: 'none',
+              zIndex: 5,
+            }}>
+              {displayText || `간판 ${sb.id + 1}`}
+              <span style={{ fontSize: 9, opacity: 0.65, marginLeft: 6 }}>
+                Shift+드래그: 꼭지점 개별 이동
+              </span>
+            </div>
+
+            {/* ── 중심 이동 핸들 ── */}
+            <div
+              title="드래그: 전체 이동"
+              style={{
                 position: 'absolute',
-                left: `${t.x}%`,
-                top:  `${t.y + t.height / 2 + 1.5}%`,
-                transform: 'translateX(-50%)',
-                backgroundColor: 'rgba(0,0,0,0.75)',
-                backdropFilter: 'blur(4px)',
-                color: '#ccc',
-                fontSize: 10,
-                padding: '3px 8px',
-                borderRadius: 4,
-                whiteSpace: 'nowrap',
-                pointerEvents: 'none',
-                zIndex: 20,
-                display: 'flex',
-                gap: 10,
-              }}>
-                <span title="글자 크기">↔ {Math.round(output.fontSize)}%</span>
-                <span title="회전 각도">↺ {Math.round(t.rotation)}°</span>
-                <span title="위치 (X, Y)">
-                  ⊕ {Math.round(output.textPositionX)}, {Math.round(output.textPositionY)}
-                </span>
-              </div>
-            )}
+                left: `${cx}%`,
+                top: `${cy}%`,
+                transform: 'translate(-50%, -50%)',
+                width: 18,
+                height: 18,
+                borderRadius: '50%',
+                backgroundColor: isSelected ? 'rgba(59,130,246,0.9)' : 'rgba(100,160,255,0.7)',
+                border: '2px solid white',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+                cursor: 'move',
+                pointerEvents: 'all',
+                zIndex: 10,
+              }}
+              onMouseDown={(e) => handleMouseDown(e, sb.id, 'move')}
+              onClick={(e) => { e.stopPropagation(); setSelectedId(sb.id); }}
+            />
+
+            {/* ── 꼭지점 핸들 × 4 ── */}
+            {t.points.map(([x, y], i) => (
+              <div
+                key={i}
+                title={`꼭지점 ${i + 1} | 드래그: 비례 리사이즈 | Shift+드래그: 개별 이동`}
+                style={{
+                  position: 'absolute',
+                  left: `${x}%`,
+                  top: `${y}%`,
+                  transform: 'translate(-50%, -50%)',
+                  width: 14,
+                  height: 14,
+                  borderRadius: '3px',
+                  backgroundColor: 'white',
+                  border: `2px solid ${isSelected ? '#3B82F6' : 'rgba(100,160,255,0.9)'}`,
+                  boxShadow: '0 2px 5px rgba(0,0,0,0.45)',
+                  cursor: 'nw-resize',
+                  pointerEvents: 'all',
+                  zIndex: 15,
+                }}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  const mode = (e.shiftKey || e.ctrlKey) ? `corner-${i}` : `scale-${i}`;
+                  handleMouseDown(e, sb.id, mode);
+                }}
+              />
+            ))}
           </React.Fragment>
         );
       })}

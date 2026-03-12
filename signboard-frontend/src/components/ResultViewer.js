@@ -58,9 +58,6 @@ const ResultViewer = ({
 
   // 줌/팬 핸들러 - ImageUploader와 동일한 방식
   const handleWheel = useCallback((e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
     const container = containerRef.current;
     if (!container) return;
     
@@ -209,6 +206,7 @@ const ResultViewer = ({
     if (!container) return;
 
     const wheelHandler = (e) => {
+      if (!e.shiftKey) return; // Shift 없으면 일반 스크롤
       e.preventDefault();
       e.stopPropagation();
       handleWheel(e);
@@ -376,7 +374,7 @@ const ResultViewer = ({
           onMouseMove={handlePanMove}
           onMouseUp={handlePanEnd}
           onMouseLeave={handlePanEnd}
-          onWheel={handleWheel}
+          onWheel={(e) => { if (e.shiftKey) handleWheel(e); }}
           onContextMenu={(e) => e.preventDefault()}
         >
           <img
@@ -445,7 +443,7 @@ const ResultViewer = ({
               })}
 
               <SignboardTransform
-                key={signboards.map((sb) => `${sb.id}-${sb.formData?.fontSize || 100}-${sb.formData?.rotation || 0}`).join('|')}
+                key={signboards.map((sb) => sb.id).join('|')}
                 signboards={signboards.map((sb) => {
                   if (!sb.selectedArea) {
                     return {
