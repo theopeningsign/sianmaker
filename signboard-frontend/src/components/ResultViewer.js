@@ -134,33 +134,40 @@ const ResultViewer = ({
     if (selectedLightId === id) setSelectedLightId(null);
   };
 
-  // Drag handling (조명)
-  const handleMouseDown = (e, id) => {
+  // Drag handling (조명 이동 + 리사이즈)
+  const handleMouseDown = (e, id, mode = 'move') => {
     e.stopPropagation();
-    draggingRef.current = { id };
+    e.preventDefault();
+    draggingRef.current = { id, mode };
     setSelectedLightId(id);
   };
 
   const handleMouseMove = (e) => {
     if (!draggingRef.current || !containerRef.current) return;
-    
-    // 이미지 요소 찾기
+
     const imgElement = containerRef.current.querySelector('img');
     if (!imgElement) return;
-    
-    // 이미지의 실제 표시 영역 (줌/팬이 모두 적용된 최종 경계)
+
     const imgRect = imgElement.getBoundingClientRect();
-    
-    // 이미지 내에서의 마우스 위치
-    const imageX = e.clientX - imgRect.left;
-    const imageY = e.clientY - imgRect.top;
-    
-    // 정규화 (0~1)
-    const x = imageX / imgRect.width;
-    const y = imageY / imgRect.height;
-    const clampedX = Math.min(1, Math.max(0, x));
-    const clampedY = Math.min(1, Math.max(0, y));
-    updateLight(draggingRef.current.id, { x: clampedX, y: clampedY });
+    const { id, mode } = draggingRef.current;
+
+    if (mode === 'move') {
+      const x = Math.min(1, Math.max(0, (e.clientX - imgRect.left) / imgRect.width));
+      const y = Math.min(1, Math.max(0, (e.clientY - imgRect.top) / imgRect.height));
+      updateLight(id, { x, y });
+
+    } else if (mode === 'resize') {
+      const light = lights.find(l => l.id === id);
+      if (!light) return;
+      // 조명 중심에서 마우스까지의 수직 거리 (screen px)
+      const centerY_screen = light.y * imgRect.height + imgRect.top;
+      const dy_screen = Math.max(10, e.clientY - centerY_screen);
+      // overlay px (scale 제거) → radius 역산
+      // displayRadius = radius * 0.4, cone bottom = center + displayRadius * 1.2
+      // → radius = dy_screen / scale / 1.2 / 0.4
+      const new_radius = Math.max(30, dy_screen / scale / 0.48);
+      updateLight(id, { radius: new_radius });
+    }
   };
 
   const handleMouseUp = () => {
@@ -501,7 +508,7 @@ const ResultViewer = ({
                 
                 return (
                   <div key={id}>
-                    {/* 조명 기구 아이콘 (더 선명하게) */}
+                    {/* 조명 기구 아이콘 */}
                     <div
                       className="absolute pointer-events-none"
                       style={{
@@ -522,23 +529,6 @@ const ResultViewer = ({
                         <ellipse cx="15" cy="10" rx="8" ry="3" fill="#2a2a2a" stroke="#555" strokeWidth="1.5" />
                       </svg>
                     </div>
-                    
-                    {/* 타원형 중심이 y, 아래쪽 절반만 표시 (백엔드와 동일) */}
-                    <div
-                      className="absolute"
-                      style={{
-                        left: `${x * 100}%`,
-                        top: `${y * 100}%`,
-                        width: `${width}px`,
-                        height: `${height}px`,  // 전체 타원 (radius * 2.4)
-                        marginLeft: `${-width / 2}px`,
-                        marginTop: `${-height / 2}px`,  // 중심을 y에 맞춤!
-                        borderRadius: '50%',
-                        background: solidColor,
-                        opacity: 0.5,
-                        clipPath: 'polygon(0 50%, 100% 50%, 100% 100%, 0 100%)',  // 아래쪽 절반만
-                      }}
-                    />
                   </div>
                 );
               })}
@@ -555,30 +545,82 @@ const ResultViewer = ({
               }}
             >
               {lights.map((light) => {
-                const { id, x, y, enabled = true } = light;
+                const { id, x, y, radius = 150, enabled = true } = light;
                 if (!enabled && !lightsEnabled) return null;
+                const displayRadius = radius * 0.4;
+                const coneBottom = displayRadius * 1.2; // 콘 하단까지의 오프셋(px)
                 return (
-                  <div
-                    key={id}
-                    onMouseDown={(e) => handleMouseDown(e, id)}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedLightId(id);
-                    }}
-                    className={`absolute cursor-move transition-all ${
-                      selectedLightId === id ? 'ring-2 ring-purple-400' : ''
-                    }`}
-                    style={{
-                      left: `${x * 100}%`,
-                      top: `${y * 100}%`,
-                      width: '40px',
-                      height: '30px',
-                      marginLeft: '-20px',
-                      marginTop: '-15px',
-                      borderRadius: '4px',
-                    }}
-                    title="드래그해서 위치 이동 / 클릭해서 설정"
-                  />
+                  <React.Fragment key={id}>
+                    {/* 삭제 버튼 (X) - 이동 핸들 위에 렌더링 */}
+                    <div
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => { e.stopPropagation(); removeLight(id); }}
+                      style={{
+                        position: 'absolute',
+                        left: `${x * 100}%`,
+                        top: `${y * 100}%`,
+                        transform: 'translate(8px, -52px)',
+                        width: 20,
+                        height: 20,
+                        borderRadius: '50%',
+                        backgroundColor: '#ef4444',
+                        border: '2px solid white',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 13,
+                        color: 'white',
+                        fontWeight: 'bold',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.6)',
+                        zIndex: 50,
+                        userSelect: 'none',
+                      }}
+                      title="조명 삭제"
+                    >
+                      <svg viewBox="0 0 20 20" width="12" height="12">
+                        <line x1="3" y1="3" x2="17" y2="17" stroke="white" strokeWidth="3" strokeLinecap="round"/>
+                        <line x1="17" y1="3" x2="3" y2="17" stroke="white" strokeWidth="3" strokeLinecap="round"/>
+                      </svg>
+                    </div>
+                    {/* 이동 핸들 (조명 기구 위치) */}
+                    <div
+                      onMouseDown={(e) => handleMouseDown(e, id, 'move')}
+                      onClick={(e) => { e.stopPropagation(); setSelectedLightId(id); }}
+                      className={`absolute cursor-move ${selectedLightId === id ? 'ring-2 ring-purple-400' : ''}`}
+                      style={{
+                        left: `${x * 100}%`,
+                        top: `${y * 100}%`,
+                        width: '40px',
+                        height: '30px',
+                        marginLeft: '-20px',
+                        marginTop: '-15px',
+                        borderRadius: '4px',
+                      }}
+                      title="드래그: 위치 이동"
+                    />
+                    {/* 리사이즈 핸들 (콘 하단) */}
+                    <div
+                      onMouseDown={(e) => handleMouseDown(e, id, 'resize')}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        position: 'absolute',
+                        left: `${x * 100}%`,
+                        top: `calc(${y * 100}% + ${coneBottom}px)`,
+                        transform: 'translate(-50%, -50%)',
+                        width: 14,
+                        height: 14,
+                        borderRadius: '50%',
+                        backgroundColor: selectedLightId === id ? '#a855f7' : 'rgba(200,180,255,0.9)',
+                        border: '2px solid white',
+                        boxShadow: '0 1px 4px rgba(0,0,0,0.5)',
+                        cursor: 's-resize',
+                        pointerEvents: 'all',
+                        zIndex: 20,
+                      }}
+                      title="드래그: 조명 크기 조절"
+                    />
+                  </React.Fragment>
                 );
               })}
             </div>

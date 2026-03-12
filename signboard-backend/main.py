@@ -1362,13 +1362,29 @@ def render_combined_signboard(installation_type: str, sign_type: str, text: str,
         text_layer_rgba = extract_text_layer(text_to_render, font, text_rgb, (width, height), position)
         text_layer_bgr = cv2.cvtColor(text_layer_rgba, cv2.COLOR_RGBA2BGR)
 
-        # 2) 텍스트 옆면(원본보다 50% 더 어두운 색상, 오른쪽 아래로 대각선 offset)
-        side_color = tuple(int(c * 0.5) for c in text_rgb)
-        side_offset_x = 2
-        side_offset_y = 1
-        side_position = (position[0] + side_offset_x, position[1] + side_offset_y)
-        side_layer_rgba = extract_text_layer(text_to_render, font, side_color, (width, height), side_position)
-        side_layer_bgr = cv2.cvtColor(side_layer_rgba, cv2.COLOR_RGBA2BGR)
+        # 2) 텍스트 옆면 - 3단계 그라데이션으로 강한 입체감
+        side_depth_x = max(4, min(10, width // 100))
+        side_depth_y = max(2, min(6, side_depth_x // 2))
+        # 뒷면 (가장 어둡고 먼 offset)
+        side_back_rgba = extract_text_layer(text_to_render, font,
+            tuple(int(c * 0.20) for c in text_rgb), (width, height),
+            (position[0] + side_depth_x, position[1] + side_depth_y))
+        side_back_bgr = cv2.cvtColor(side_back_rgba, cv2.COLOR_RGBA2BGR)
+        # 중간면
+        side_mid_rgba = extract_text_layer(text_to_render, font,
+            tuple(int(c * 0.33) for c in text_rgb), (width, height),
+            (position[0] + side_depth_x // 2, position[1] + side_depth_y // 2))
+        side_mid_bgr = cv2.cvtColor(side_mid_rgba, cv2.COLOR_RGBA2BGR)
+        # 앞면 옆면 (가장 밝은 옆면, 가까운 offset)
+        side_front_rgba = extract_text_layer(text_to_render, font,
+            tuple(int(c * 0.48) for c in text_rgb), (width, height),
+            (position[0] + 2, position[1] + 1))
+        side_front_bgr = cv2.cvtColor(side_front_rgba, cv2.COLOR_RGBA2BGR)
+        # 하이라이트 (왼쪽 위, 밝게)
+        highlight_rgba = extract_text_layer(text_to_render, font,
+            tuple(min(255, int(c + 65)) for c in text_rgb), (width, height),
+            (position[0] - 1, position[1] - 1))
+        highlight_bgr = cv2.cvtColor(highlight_rgba, cv2.COLOR_RGBA2BGR)
 
         day_result = signboard_np.copy()
 
@@ -1378,33 +1394,43 @@ def render_combined_signboard(installation_type: str, sign_type: str, text: str,
             sys.stdout.flush()
             print(f"[전면프레임 블렌딩] 시작: text_color={text_color}, bg_color={bg_color}", flush=True)
             # 투명 배경에서 레이어 쌓기 (배경 색과 독립적으로)
-            # 전면프레임은 그림자 없음 (프레임에 붙어있어서 그림자가 생기지 않음)
             h, w = day_result.shape[:2]
             result = np.zeros((h, w, 4), dtype=np.float32)  # RGBA
-            
-            # 1. 옆면 레이어 (앞면 영역 제외) - 입체감을 위한 옆면만
-            side_alpha = side_layer_rgba[:, :, 3:4].astype(np.float32) / 255.0
-            side_rgb = side_layer_rgba[:, :, :3].astype(np.float32)
+
+            # 마스크 사전 계산 (뒤→앞 순서로 앞 레이어 영역 제외)
             text_mask = text_layer_rgba[:, :, 3:4].astype(np.float32) / 255.0
-            
-            # 앞면 영역 제외
-            side_alpha_adjusted = side_alpha * (1 - text_mask)
-            
-            # 알파 합성
-            result[:, :, :3] = result[:, :, :3] * (1 - side_alpha_adjusted) + side_rgb * side_alpha_adjusted
-            result[:, :, 3:4] = np.maximum(result[:, :, 3:4], side_alpha_adjusted)
-            
+            front_mask = side_front_rgba[:, :, 3:4].astype(np.float32) / 255.0
+            mid_mask = side_mid_rgba[:, :, 3:4].astype(np.float32) / 255.0
+
+            # 1-a. 뒷면 (앞면 전체 제외)
+            a = side_back_rgba[:, :, 3:4].astype(np.float32) / 255.0 * (
+                1 - np.maximum(text_mask, np.maximum(front_mask, mid_mask)))
+            result[:, :, :3] = result[:, :, :3] * (1 - a) + side_back_rgba[:, :, :3].astype(np.float32) * a
+            result[:, :, 3:4] = np.maximum(result[:, :, 3:4], a)
+            # 1-b. 중간면
+            a = side_mid_rgba[:, :, 3:4].astype(np.float32) / 255.0 * (
+                1 - np.maximum(text_mask, front_mask))
+            result[:, :, :3] = result[:, :, :3] * (1 - a) + side_mid_rgba[:, :, :3].astype(np.float32) * a
+            result[:, :, 3:4] = np.maximum(result[:, :, 3:4], a)
+            # 1-c. 앞면 옆면
+            a = side_front_rgba[:, :, 3:4].astype(np.float32) / 255.0 * (1 - text_mask)
+            result[:, :, :3] = result[:, :, :3] * (1 - a) + side_front_rgba[:, :, :3].astype(np.float32) * a
+            result[:, :, 3:4] = np.maximum(result[:, :, 3:4], a)
+
             # 2. 앞면 레이어 (100% 불투명)
             text_alpha = text_layer_rgba[:, :, 3:4].astype(np.float32) / 255.0
-            text_rgb = text_layer_rgba[:, :, :3].astype(np.float32)
-            
-            # 알파 합성
-            result[:, :, :3] = result[:, :, :3] * (1 - text_alpha) + text_rgb * text_alpha
+            text_rgb_f = text_layer_rgba[:, :, :3].astype(np.float32)
+            result[:, :, :3] = result[:, :, :3] * (1 - text_alpha) + text_rgb_f * text_alpha
             result[:, :, 3:4] = np.maximum(result[:, :, 3:4], text_alpha)
-            
+
+            # 3. 하이라이트 (텍스트 영역 위, 40% 반영)
+            h_alpha = highlight_rgba[:, :, 3:4].astype(np.float32) / 255.0 * text_mask * 0.4
+            result[:, :, :3] = result[:, :, :3] * (1 - h_alpha) + highlight_rgba[:, :, :3].astype(np.float32) * h_alpha
+            result[:, :, 3:4] = np.maximum(result[:, :, 3:4], h_alpha)
+
             # 텍스트 영역의 알파를 1.0으로 강제 설정 (전면프레임은 불투명해야 함)
-            text_mask = text_layer_rgba[:, :, 3] > 0
-            result[text_mask, 3] = 1.0
+            text_mask_bool = text_layer_rgba[:, :, 3] > 0
+            result[text_mask_bool, 3] = 1.0
             
             # 3. RGB -> BGR 변환 (result[:, :, :3]은 RGB 순서이므로 BGR로 변환 필요)
             result_rgb = result[:, :, :3].astype(np.uint8)
@@ -1436,29 +1462,26 @@ def render_combined_signboard(installation_type: str, sign_type: str, text: str,
             # 맨벽/프레임바: 기존 방식 (투명 배경이므로 add 사용 가능)
             day_f = day_result.astype(np.float32)
 
-            # 옆면, 앞면 합성 (glow 없이)
-            if use_actual_bg_for_training:
-                # 학습용: 배경이 있으므로 alpha 블렌딩 사용
-                # 옆면 alpha 블렌딩
-                side_alpha = side_layer_rgba[:, :, 3:4].astype(np.float32) / 255.0
-                side_alpha_3ch = np.repeat(side_alpha, 3, axis=2)
+            # 옆면, 앞면 합성 (glow 없이) - alpha blending으로 색간섭 방지
+            for layer_rgba, layer_bgr in [
+                (side_back_rgba, side_back_bgr),
+                (side_mid_rgba, side_mid_bgr),
+                (side_front_rgba, side_front_bgr),
+                (text_layer_rgba, text_layer_bgr),
+            ]:
+                a = layer_rgba[:, :, 3:4].astype(np.float32) / 255.0
+                a3 = np.repeat(a, 3, axis=2)
                 day_result = (
-                    day_f * (1 - side_alpha_3ch) +
-                    side_layer_bgr.astype(np.float32) * side_alpha_3ch
+                    day_result.astype(np.float32) * (1 - a3) +
+                    layer_bgr.astype(np.float32) * a3
                 ).astype(np.uint8)
-                
-                # 앞면 alpha 블렌딩
-                text_alpha = text_layer_rgba[:, :, 3:4].astype(np.float32) / 255.0
-                text_alpha_3ch = np.repeat(text_alpha, 3, axis=2)
-                day_result = (
-                    day_result.astype(np.float32) * (1 - text_alpha_3ch) +
-                    text_layer_bgr.astype(np.float32) * text_alpha_3ch
-                ).astype(np.uint8)
-            else:
-                # 시안용: 투명 배경이므로 cv2.add 사용 (기존 동작)
-                day_result = cv2.add(day_f.astype(np.uint8), side_layer_bgr)
-                day_result = cv2.add(day_result, text_layer_bgr)
-            
+            # 하이라이트
+            h_a = highlight_rgba[:, :, 3:4].astype(np.float32) / 255.0 * 0.4
+            h3 = np.repeat(h_a, 3, axis=2)
+            day_result = np.clip(
+                day_result.astype(np.float32) * (1 - h3) + highlight_bgr.astype(np.float32) * h3, 0, 255
+            ).astype(np.uint8)
+
             # 맨벽/프레임바는 입체감 추가
             if installation_type == "프레임바":
                 day_result = add_3d_depth(day_result, depth=5)
@@ -1504,14 +1527,29 @@ def render_combined_signboard(installation_type: str, sign_type: str, text: str,
         text_layer_bgr = cv2.cvtColor(text_layer_rgba, cv2.COLOR_RGBA2BGR)
         print(f"[DEBUG] 후광/전후광: text_layer_rgba 생성 후 shape={text_layer_rgba.shape}, RGB.min()={text_layer_rgba[:, :, :3].min()}, max()={text_layer_rgba[:, :, :3].max()}, mean()={text_layer_rgba[:, :, :3].mean()}, alpha.max()={text_layer_rgba[:, :, 3].max()}, mean()={text_layer_rgba[:, :, 3].mean()}")
 
-        # 2) 텍스트 옆면(원본보다 50% 더 어두운 색상, 오른쪽 아래로 대각선 offset)
-        side_color = tuple(int(c * 0.5) for c in text_rgb)
-        side_offset_x = 2
-        side_offset_y = 1
-        side_position = (position[0] + side_offset_x, position[1] + side_offset_y)
-        side_layer_rgba = extract_text_layer(text_to_render, font, side_color, (width, height), side_position)
-        side_layer_bgr = cv2.cvtColor(side_layer_rgba, cv2.COLOR_RGBA2BGR)
-        print(f"[DEBUG] 후광/전후광: side_layer_rgba 생성 후 shape={side_layer_rgba.shape}, RGB.min()={side_layer_rgba[:, :, :3].min()}, max()={side_layer_rgba[:, :, :3].max()}, mean()={side_layer_rgba[:, :, :3].mean()}, alpha.max()={side_layer_rgba[:, :, 3].max()}, mean()={side_layer_rgba[:, :, 3].mean()}")
+        # 2) 텍스트 옆면 - 3단계 그라데이션으로 강한 입체감
+        side_depth_x = max(4, min(10, width // 100))
+        side_depth_y = max(2, min(6, side_depth_x // 2))
+        # 뒷면 (가장 어둡고 먼 offset)
+        side_back_rgba = extract_text_layer(text_to_render, font,
+            tuple(int(c * 0.20) for c in text_rgb), (width, height),
+            (position[0] + side_depth_x, position[1] + side_depth_y))
+        side_back_bgr = cv2.cvtColor(side_back_rgba, cv2.COLOR_RGBA2BGR)
+        # 중간면
+        side_mid_rgba = extract_text_layer(text_to_render, font,
+            tuple(int(c * 0.33) for c in text_rgb), (width, height),
+            (position[0] + side_depth_x // 2, position[1] + side_depth_y // 2))
+        side_mid_bgr = cv2.cvtColor(side_mid_rgba, cv2.COLOR_RGBA2BGR)
+        # 앞면 옆면 (가장 밝은 옆면, 가까운 offset)
+        side_front_rgba = extract_text_layer(text_to_render, font,
+            tuple(int(c * 0.48) for c in text_rgb), (width, height),
+            (position[0] + 2, position[1] + 1))
+        side_front_bgr = cv2.cvtColor(side_front_rgba, cv2.COLOR_RGBA2BGR)
+        # 하이라이트 (왼쪽 위, 밝게)
+        highlight_rgba = extract_text_layer(text_to_render, font,
+            tuple(min(255, int(c + 65)) for c in text_rgb), (width, height),
+            (position[0] - 1, position[1] - 1))
+        highlight_bgr = cv2.cvtColor(highlight_rgba, cv2.COLOR_RGBA2BGR)
 
         day_result = signboard_np.copy()
         print(f"[DEBUG] 후광/전후광: signboard_np.shape={signboard_np.shape}, day_result.shape={day_result.shape}, width={width}, height={height}")
@@ -1520,33 +1558,43 @@ def render_combined_signboard(installation_type: str, sign_type: str, text: str,
         if installation_type == "전면프레임":
             debug_logger.info(f"[후광/전후광 전면프레임 블렌딩] 시작: sign_type={sign_type}, text_color={text_color}, bg_color={bg_color}")
             # 투명 배경에서 레이어 쌓기 (배경 색과 독립적으로)
-            # 전면프레임은 그림자 없음 (프레임에 붙어있어서 그림자가 생기지 않음)
             h, w = day_result.shape[:2]
             result = np.zeros((h, w, 4), dtype=np.float32)  # RGBA
-            
-            # 1. 옆면 레이어 (앞면 영역 제외) - 입체감을 위한 옆면만
-            side_alpha = side_layer_rgba[:, :, 3:4].astype(np.float32) / 255.0
-            side_rgb = side_layer_rgba[:, :, :3].astype(np.float32)
+
+            # 마스크 사전 계산 (뒤→앞 순서로 앞 레이어 영역 제외)
             text_mask = text_layer_rgba[:, :, 3:4].astype(np.float32) / 255.0
-            
-            # 앞면 영역 제외
-            side_alpha_adjusted = side_alpha * (1 - text_mask)
-            
-            # 알파 합성
-            result[:, :, :3] = result[:, :, :3] * (1 - side_alpha_adjusted) + side_rgb * side_alpha_adjusted
-            result[:, :, 3:4] = np.maximum(result[:, :, 3:4], side_alpha_adjusted)
-            
+            front_mask = side_front_rgba[:, :, 3:4].astype(np.float32) / 255.0
+            mid_mask = side_mid_rgba[:, :, 3:4].astype(np.float32) / 255.0
+
+            # 1-a. 뒷면 (앞면 전체 제외)
+            a = side_back_rgba[:, :, 3:4].astype(np.float32) / 255.0 * (
+                1 - np.maximum(text_mask, np.maximum(front_mask, mid_mask)))
+            result[:, :, :3] = result[:, :, :3] * (1 - a) + side_back_rgba[:, :, :3].astype(np.float32) * a
+            result[:, :, 3:4] = np.maximum(result[:, :, 3:4], a)
+            # 1-b. 중간면
+            a = side_mid_rgba[:, :, 3:4].astype(np.float32) / 255.0 * (
+                1 - np.maximum(text_mask, front_mask))
+            result[:, :, :3] = result[:, :, :3] * (1 - a) + side_mid_rgba[:, :, :3].astype(np.float32) * a
+            result[:, :, 3:4] = np.maximum(result[:, :, 3:4], a)
+            # 1-c. 앞면 옆면
+            a = side_front_rgba[:, :, 3:4].astype(np.float32) / 255.0 * (1 - text_mask)
+            result[:, :, :3] = result[:, :, :3] * (1 - a) + side_front_rgba[:, :, :3].astype(np.float32) * a
+            result[:, :, 3:4] = np.maximum(result[:, :, 3:4], a)
+
             # 2. 앞면 레이어 (100% 불투명)
             text_alpha = text_layer_rgba[:, :, 3:4].astype(np.float32) / 255.0
-            text_rgb = text_layer_rgba[:, :, :3].astype(np.float32)
-            
-            # 알파 합성
-            result[:, :, :3] = result[:, :, :3] * (1 - text_alpha) + text_rgb * text_alpha
+            text_rgb_f = text_layer_rgba[:, :, :3].astype(np.float32)
+            result[:, :, :3] = result[:, :, :3] * (1 - text_alpha) + text_rgb_f * text_alpha
             result[:, :, 3:4] = np.maximum(result[:, :, 3:4], text_alpha)
-            
+
+            # 3. 하이라이트 (텍스트 영역 위, 40% 반영)
+            h_alpha = highlight_rgba[:, :, 3:4].astype(np.float32) / 255.0 * text_mask * 0.4
+            result[:, :, :3] = result[:, :, :3] * (1 - h_alpha) + highlight_rgba[:, :, :3].astype(np.float32) * h_alpha
+            result[:, :, 3:4] = np.maximum(result[:, :, 3:4], h_alpha)
+
             # 텍스트 영역의 알파를 1.0으로 강제 설정 (전면프레임은 불투명해야 함)
-            text_mask = text_layer_rgba[:, :, 3] > 0
-            result[text_mask, 3] = 1.0
+            text_mask_bool = text_layer_rgba[:, :, 3] > 0
+            result[text_mask_bool, 3] = 1.0
             debug_logger.debug(f"텍스트 알파 강제 설정: text_mask 픽셀 수={text_mask.sum()}, result[text_mask, 3].min()={result[text_mask, 3].min()}, max()={result[text_mask, 3].max()}")
             
             # 3. RGB -> BGR 변환 (result[:, :, :3]은 RGB 순서이므로 BGR로 변환 필요)
@@ -1582,35 +1630,32 @@ def render_combined_signboard(installation_type: str, sign_type: str, text: str,
             # 맨벽/프레임바: 기존 방식 (투명 배경이므로 add 사용 가능)
             day_f = day_result.astype(np.float32)
 
-            # 옆면, 앞면 합성
-            if use_actual_bg_for_training:
-                # 학습용: 배경이 있으므로 alpha 블렌딩 사용
-                # 옆면 alpha 블렌딩
-                side_alpha = side_layer_rgba[:, :, 3:4].astype(np.float32) / 255.0
-                side_alpha_3ch = np.repeat(side_alpha, 3, axis=2)
+            # 옆면, 앞면 합성 - alpha blending으로 색간섭 방지
+            for layer_rgba, layer_bgr in [
+                (side_back_rgba, side_back_bgr),
+                (side_mid_rgba, side_mid_bgr),
+                (side_front_rgba, side_front_bgr),
+                (text_layer_rgba, text_layer_bgr),
+            ]:
+                a = layer_rgba[:, :, 3:4].astype(np.float32) / 255.0
+                a3 = np.repeat(a, 3, axis=2)
                 day_result = (
-                    day_f * (1 - side_alpha_3ch) +
-                    side_layer_bgr.astype(np.float32) * side_alpha_3ch
+                    day_result.astype(np.float32) * (1 - a3) +
+                    layer_bgr.astype(np.float32) * a3
                 ).astype(np.uint8)
-                
-                # 앞면 alpha 블렌딩
-                text_alpha = text_layer_rgba[:, :, 3:4].astype(np.float32) / 255.0
-                text_alpha_3ch = np.repeat(text_alpha, 3, axis=2)
-                day_result = (
-                    day_result.astype(np.float32) * (1 - text_alpha_3ch) +
-                    text_layer_bgr.astype(np.float32) * text_alpha_3ch
-                ).astype(np.uint8)
-            else:
-                # 시안용: 투명 배경이므로 cv2.add 사용 (기존 동작)
-                day_result = cv2.add(day_f.astype(np.uint8), side_layer_bgr)
-                day_result = cv2.add(day_result, text_layer_bgr)
-            
+            # 하이라이트
+            h_a = highlight_rgba[:, :, 3:4].astype(np.float32) / 255.0 * 0.4
+            h3 = np.repeat(h_a, 3, axis=2)
+            day_result = np.clip(
+                day_result.astype(np.float32) * (1 - h3) + highlight_bgr.astype(np.float32) * h3, 0, 255
+            ).astype(np.uint8)
+
             # 맨벽/프레임바는 입체감 추가
             if installation_type == "프레임바":
                 day_result = add_3d_depth(day_result, depth=5)
             elif installation_type == "맨벽":
                 day_result = add_3d_depth(day_result, depth=5)
-            
+
             result = day_result
 
         # 후광채널/전후광채널 glow 처리 (전광채널과 동일하게 day_result에 직접 적용)
@@ -1668,44 +1713,7 @@ def render_combined_signboard(installation_type: str, sign_type: str, text: str,
                 day_result = np.clip(day_result, 0, 255).astype(np.uint8)
                 # ==================================
                 
-        else:
-            # 전후광채널: 주간에는 전광채널처럼 약한 glow 효과 추가
-            debug_logger.info(f"[전후광채널 glow] 시작: installation_type={installation_type}, day_result.shape={day_result.shape}")
-            if installation_type == "전면프레임":
-                # 전면프레임: day_result에서 직접 밝은 부분 추출하여 glow 적용 (크기 문제 해결)
-                # ============ 이미지 크기 기반 동적 전후광 조정 ============
-                image_area = width * height
-                
-                # 작은 이미지 (512x512=262,144 이하): pix2pix용 자연스러운 전후광
-                if image_area <= 300000:  # 약 548x548 이하
-                    # 작은 blur로 자연스러운 전후광
-                    mixed_blur_size = (15, 15)
-                    mixed_sigma = 8
-                    mixed_intensity = 0.4  # 낮은 강도
-                else:
-                    # 큰 이미지: 기존 설정 유지
-                    mixed_blur_size = (25, 25)
-                    mixed_sigma = 10
-                    mixed_intensity = 0.5
-                # ========================================================
-                
-                # day_result에서 텍스트 영역(밝은 부분) 추출
-                gray = cv2.cvtColor(day_result, cv2.COLOR_BGR2GRAY)
-                bright_mask = (gray > 50).astype(np.float32)  # 밝은 부분 마스크
-                bright_mask_3ch = np.stack([bright_mask, bright_mask, bright_mask], axis=2)
-                bright_area = day_result.astype(np.float32) * bright_mask_3ch
-                text_glow = safe_gaussian_blur(bright_area.astype(np.uint8), mixed_blur_size, mixed_sigma)
-                debug_logger.debug(f"전후광채널 전면프레임 glow: bright_mask 픽셀 수={bright_mask.sum()}, text_glow.mean()={text_glow.mean():.2f}")
-                day_result = cv2.addWeighted(day_result, 1.0, text_glow, mixed_intensity, 0)
-                debug_logger.debug(f"전후광채널 전면프레임 glow 완료: day_result.mean()={day_result.mean():.2f}")
-            else:
-                # 맨벽/프레임바: 기존 방식 (text_layer_bgr 사용)
-                if text_layer_bgr is not None and text_layer_bgr.size > 0:
-                    text_glow = safe_gaussian_blur(text_layer_bgr, (25, 25), 10)
-                    # day_result 크기에 맞춰 text_glow 리사이즈
-                    if day_result.shape[:2] != text_glow.shape[:2]:
-                        text_glow = cv2.resize(text_glow, (day_result.shape[1], day_result.shape[0]), interpolation=cv2.INTER_AREA)
-                    day_result = cv2.addWeighted(day_result, 1.0, text_glow, 0.5, 0)
+        # 전후광채널 주간: 전광채널과 동일 (후광 효과는 야간에만 의미있음, 주간 glow 제거)
         
         # result 설정 (전면프레임이든 아니든 day_result 사용)
         result = day_result
@@ -1732,33 +1740,44 @@ def render_combined_signboard(installation_type: str, sign_type: str, text: str,
         text_layer_rgba = extract_text_layer(text_to_render, font, text_rgb, (width, height), position)
         text_layer_bgr = cv2.cvtColor(text_layer_rgba, cv2.COLOR_RGBA2BGR)
 
-        # 2) 텍스트 옆면 (원본보다 50% 더 어두운 색상, 오른쪽 아래로 대각선 offset)
-        side_color = tuple(int(c * 0.5) for c in text_rgb)  # 0.5x (원래대로)
-        side_offset_x = 2
-        side_offset_y = 1
-        side_position = (position[0] + side_offset_x, position[1] + side_offset_y)
-        side_layer_rgba = extract_text_layer(text_to_render, font, side_color, (width, height), side_position)
-        side_layer_bgr = cv2.cvtColor(side_layer_rgba, cv2.COLOR_RGBA2BGR)
+        # 2) 텍스트 옆면 - 3단계 그라데이션으로 강한 입체감
+        side_depth_x = max(4, min(10, width // 100))
+        side_depth_y = max(2, min(6, side_depth_x // 2))
+        # 뒷면 (가장 어둡고 먼 offset)
+        side_back_rgba = extract_text_layer(text_to_render, font,
+            tuple(int(c * 0.20) for c in text_rgb), (width, height),
+            (position[0] + side_depth_x, position[1] + side_depth_y))
+        side_back_bgr = cv2.cvtColor(side_back_rgba, cv2.COLOR_RGBA2BGR)
+        # 중간면
+        side_mid_rgba = extract_text_layer(text_to_render, font,
+            tuple(int(c * 0.33) for c in text_rgb), (width, height),
+            (position[0] + side_depth_x // 2, position[1] + side_depth_y // 2))
+        side_mid_bgr = cv2.cvtColor(side_mid_rgba, cv2.COLOR_RGBA2BGR)
+        # 앞면 옆면
+        side_front_rgba = extract_text_layer(text_to_render, font,
+            tuple(int(c * 0.48) for c in text_rgb), (width, height),
+            (position[0] + 2, position[1] + 1))
+        side_front_bgr = cv2.cvtColor(side_front_rgba, cv2.COLOR_RGBA2BGR)
 
         result_f = signboard_np.copy().astype(np.float32)
 
-        # 옆면, 앞면 합성 (alpha blending 사용 - 색상 간섭 방지)
-        # 옆면 alpha blending
-        side_alpha = side_layer_rgba[:, :, 3:4].astype(np.float32) / 255.0
-        side_alpha_3ch = np.repeat(side_alpha, 3, axis=2)
-        result_f = result_f * (1 - side_alpha_3ch) + side_layer_bgr.astype(np.float32) * side_alpha_3ch
-        
-        # 앞면 alpha blending
-        text_alpha = text_layer_rgba[:, :, 3:4].astype(np.float32) / 255.0
-        text_alpha_3ch = np.repeat(text_alpha, 3, axis=2)
-        result_f = result_f * (1 - text_alpha_3ch) + text_layer_bgr.astype(np.float32) * text_alpha_3ch
+        # 옆면, 앞면 합성 (뒤→앞 순서, alpha blending)
+        for layer_rgba, layer_bgr in [
+            (side_back_rgba, side_back_bgr),
+            (side_mid_rgba, side_mid_bgr),
+            (side_front_rgba, side_front_bgr),
+            (text_layer_rgba, text_layer_bgr),
+        ]:
+            a = layer_rgba[:, :, 3:4].astype(np.float32) / 255.0
+            a3 = np.repeat(a, 3, axis=2)
+            result_f = result_f * (1 - a3) + layer_bgr.astype(np.float32) * a3
 
-        # 살짝 하이라이트 추가 (기존 스카시 느낌 유지)
-        highlight_pos = (position[0] - 1, position[1] - 1)
-        highlight_rgb = tuple(min(255, c + 30) for c in text_rgb)
-        highlight_layer_rgba = extract_text_layer(text_to_render, font, highlight_rgb, (width, height), highlight_pos)
-        highlight_layer_bgr = cv2.cvtColor(highlight_layer_rgba, cv2.COLOR_RGBA2BGR)
-        result_f = cv2.addWeighted(result_f, 0.95, highlight_layer_bgr.astype(np.float32), 0.15, 0)
+        # 하이라이트 (왼쪽 위, +65 밝기, 40% 반영 - 스카시 강한 광택)
+        highlight_rgba = extract_text_layer(text_to_render, font,
+            tuple(min(255, c + 65) for c in text_rgb), (width, height),
+            (position[0] - 1, position[1] - 1))
+        highlight_bgr = cv2.cvtColor(highlight_rgba, cv2.COLOR_RGBA2BGR)
+        result_f = cv2.addWeighted(result_f, 1.0, highlight_bgr.astype(np.float32), 0.4, 0)
 
         # 금속/아크릴 질감 노이즈 유지
         texture = np.random.randint(-3, 3, result_f.shape, dtype=np.int16).astype(np.float32)
@@ -3184,118 +3203,72 @@ def composite_signboard(
             glow_intensity = 1.8
             night_result = night_base * (1 - combined_mask) + warped_sign.astype(np.float32) * combined_mask * glow_intensity
 
-    # 조명 합성 (간판 표면 집중)
+    # 조명 합성 - 콘(cone) 스포트라이트 방식
     if lights_enabled and lights:
-        print(f"[DEBUG] 조명 처리 시작: {len(lights)}개의 조명")
-        # 간판 영역 마스크: 투명도 고려하지 않고 폴리곤 마스크만 사용!
-        # combined_mask는 투명한 배경을 제외하므로, 조명 계산에는 전체 폴리곤 사용
-        signboard_mask_single = mask[:, :, 0]  # 폴리곤 영역 전체
-        
-        # 간판의 실제 위치 확인
-        signboard_ys, signboard_xs = np.where(signboard_mask_single > 0.5)
-        signboard_y_center = h // 2  # 기본값
-        if len(signboard_ys) > 0:
-            signboard_y_min = signboard_ys.min()
-            signboard_y_max = signboard_ys.max()
-            signboard_y_center = (signboard_y_min + signboard_y_max) // 2
-            print(f"[DEBUG] 간판 Y 위치: min={signboard_y_min}, max={signboard_y_max}, center={signboard_y_center}")
-        
+        # 픽셀 좌표 그리드 (벡터화, 루프 없음)
+        xs_grid = np.arange(w, dtype=np.float32)
+        ys_grid = np.arange(h, dtype=np.float32)
+        XX, YY = np.meshgrid(xs_grid, ys_grid)
+
+        night_f = night_result.astype(np.float32)
+        day_f   = day_result.astype(np.float32)
+
         for light in lights:
-            print(f"[DEBUG] 조명 처리 중: intensity={light.get('intensity')}, radius={light.get('radius')}")
-            
-            # 로그 파일에도 저장
-            with open("debug.log", "a", encoding="utf-8") as f:
-                f.write(f"\n=== 조명 처리 시작 ===\n")
-                f.write(f"조명 데이터: {light}\n")
-            
             if not light.get("enabled", True):
                 continue
-            lx = float(light.get("x", 0.5))
-            ly = float(light.get("y", 0.5))
-            intensity = float(light.get("intensity", 1.0))
-            radius = float(light.get("radius", 150))
-            temperature = float(light.get("temperature", 0.5))  # 0=warm, 1=cool
 
-            cx = int(lx * w)
-            cy = int(ly * h)  # 사용자가 설정한 위치 그대로 사용
-            rad = int(radius)
-            
-            print(f"[DEBUG] 이미지 크기: h={h}, w={w}")
-            print(f"[DEBUG] 조명 위치: cx={cx}, cy={cy}, rad={rad}")
-            print(f"[DEBUG] signboard_mask_single 범위: min={signboard_mask_single.min():.3f}, max={signboard_mask_single.max():.3f}")
-            print(f"[DEBUG] signboard_mask_single에서 0이 아닌 픽셀 수: {np.sum(signboard_mask_single > 0.1)}")
+            lx          = float(light.get("x", 0.5))
+            ly          = float(light.get("y", 0.0))
+            intensity   = float(light.get("intensity", 1.0))
+            radius      = float(light.get("radius", max(h, w) * 0.6))
+            temperature = float(light.get("temperature", 0.7))  # 0=warm, 1=cool
 
-            # 조명 색온도
-            warm = np.array([255, 220, 200], dtype=np.float32)
-            cool = np.array([200, 210, 255], dtype=np.float32)
-            light_color = warm * (1 - temperature) + cool * temperature
+            cx = lx * w
+            cy = ly * h
 
-            # 조명 마스크 (타원형: 위에서 아래로 비추는 형태)
-            # 프론트엔드와 동일하게
-            mask_light = np.zeros((h, w), dtype=np.float32)
-            light_width = rad * 2.0  # 가로 반경
-            light_height = rad * 2.4  # 세로 반경
-            
-            # 파일에 로그 저장 (light_width 정의 후)
-            with open("debug.log", "a", encoding="utf-8") as f:
-                f.write(f"이미지 크기: h={h}, w={w}\n")
-                if len(signboard_ys) > 0:
-                    f.write(f"간판 Y 위치: min={signboard_y_min}, max={signboard_y_max}, center={signboard_y_center}\n")
-                f.write(f"조명 위치: cx={cx}, cy={cy}, rad={rad}\n")
-                f.write(f"조명 크기: width={light_width}, height={light_height}\n")
-                f.write(f"간판 픽셀 수: {np.sum(signboard_mask_single > 0.1)}\n")
-            
-            for i in range(h):
-                for j in range(w):
-                    # 조명에서의 거리
-                    dx = j - cx
-                    dy = i - cy
-                    
-                    # 타원형 거리 계산 (프론트엔드와 동일)
-                    dist = np.sqrt((dx / (light_width / 2))**2 + (dy / (light_height / 2))**2)
-                    
-                    if dist < 1.0:
-                        # 타원형 안에 있으면 균일하게 1.0 (프론트엔드와 동일)
-                        mask_light[i, j] = 1.0
-            
-            print(f"[DEBUG] mask_light 범위: min={mask_light.min():.3f}, max={mask_light.max():.3f}")
-            print(f"[DEBUG] mask_light에서 0이 아닌 픽셀 수: {np.sum(mask_light > 0.01)}")
-            
-            # ===== 구버전 (간판과의 교집합) =====
-            # light_on_signboard = mask_light * signboard_mask_single
-            
-            # ===== 신버전 (타원형의 아래쪽 절반만, 프론트엔드와 동일) =====
-            # 조명 중심(cy)부터 아래쪽만 적용
-            mask_lower = np.zeros((h, w), dtype=np.float32)
-            mask_lower[cy:, :] = 1.0  # cy부터 아래쪽만
-            light_on_signboard = mask_light * mask_lower  # 타원의 아래쪽 절반만
-            
-            # intensity 적용: 야간 효과를 얼마나 제거할지
-            # intensity = 0 → 야간 그대로 (제거 안함)
-            # intensity = 1 → 완전히 주간으로 복원
-            # intensity > 1 → 더 강하게 (최대 3까지)
-            restore_strength = np.clip(light_on_signboard * intensity, 0, 1)
-            restore_strength_3ch = np.stack([restore_strength, restore_strength, restore_strength], axis=2)
-            
-            # 야간 효과 제거: 조명이 비추는 간판 부분을 주간 이미지로 교체
-            print(f"[DEBUG] restore_strength 범위: min={restore_strength.min():.3f}, max={restore_strength.max():.3f}, mean={restore_strength.mean():.3f}")
-            print(f"[DEBUG] 조명이 적용되는 픽셀 수: {np.sum(restore_strength > 0.1)}")
-            
-            # 파일에도 저장
-            with open("debug.log", "a", encoding="utf-8") as f:
-                f.write(f"restore_strength 최대값: {restore_strength.max():.3f}\n")
-                f.write(f"조명 적용 픽셀 수: {np.sum(restore_strength > 0.1)}\n")
-                f.write(f"---\n")
-            
-            night_result = night_result.astype(np.float32) * (1 - restore_strength_3ch) + day_result.astype(np.float32) * restore_strength_3ch
-            
-            # 조명 색온도 약하게 추가 (분위기)
-            light_tint = light_color * restore_strength_3ch * 0.08
-            night_result = night_result + light_tint
-            
-            print(f"[DEBUG] 조명 처리 완료")
-            
-            night_result = np.clip(night_result, 0, 255)
+            dx = XX - cx
+            dy = YY - cy
+            dist = np.sqrt(dx * dx + dy * dy)
+            dist = np.maximum(dist, 1e-6)
+
+            # ── 콘 방향: 아래 방향(dy > 0) + 수직선과의 각도 ──
+            # cos(수직과의 각도) = dy / dist  (클수록 중심축에 가까움)
+            cos_v = dy / dist
+
+            # 반각 ≈ 50° (cos 0.64) → 넓고 자연스러운 스포트라이트
+            half_cos = 0.64
+            in_cone = (dy > 0) & (cos_v >= half_cos)
+
+            # 각도 감쇠: 중심축일수록 밝음, 제곱근으로 부드럽게
+            angle_f = np.where(in_cone,
+                               np.sqrt((cos_v - half_cos) / (1.0 - half_cos)),
+                               0.0)
+
+            # 거리 감쇠: 램프에서 멀어질수록 어두움 (제곱 감쇠)
+            dist_f = np.maximum(0.0, 1.0 - (dist / radius) ** 1.5)
+
+            # 콘 마스크 합성 + 소프트 엣지
+            cone = angle_f * dist_f * intensity
+            cone = np.clip(cone, 0.0, 1.0)
+            cone = cv2.GaussianBlur(cone, (0, 0), sigmaX=radius * 0.03)
+            cone = np.clip(cone, 0.0, 1.0)
+
+            cone3 = np.stack([cone, cone, cone], axis=2)
+
+            # 색온도 (BGR)
+            # warm: 황백, cool: 청백 (예시 이미지처럼 차가운 흰빛)
+            warm_bgr = np.array([200, 220, 255], dtype=np.float32)
+            cool_bgr = np.array([230, 240, 255], dtype=np.float32)
+            light_bgr = warm_bgr * (1.0 - temperature) + cool_bgr * temperature
+
+            # 조명 적용:
+            # 1) 조명 영역 → 주간 이미지로 복원 (간판 내용 보이게)
+            night_f = night_f * (1.0 - cone3 * 0.88) + day_f * (cone3 * 0.88)
+            # 2) 조명 색상 오버레이 (스포트라이트 빛 느낌)
+            night_f = night_f + light_bgr * cone3 * 0.25
+            night_f = np.clip(night_f, 0.0, 255.0)
+
+        night_result = night_f.astype(np.uint8)
     
     night_result = np.clip(night_result, 0, 255).astype(np.uint8)
 
