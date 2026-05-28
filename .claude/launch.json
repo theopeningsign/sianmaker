@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "sianmaker",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["live-server", ".", "--port=3030", "--no-browser", "--quiet"],
+      "port": 3030
+    }
+  ]
+}

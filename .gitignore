@@ -1,0 +1,30 @@
+# 의존성
+node_modules/
+
+# 환경변수 (API 키 등 절대 커밋 금지)
+.env
+.env.local
+.env.*.local
+
+# 빌드 산출물
+dist/
+build/
+.cache/
+
+# OS 파일
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+*.suo
+*.user
+
+# 로그
+*.log
+npm-debug.log*
+
+# 임시 파일
+*.tmp
+*.temp

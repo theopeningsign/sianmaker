@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- 개발용 자동 새로고침: 파일 변경 감지 시 자동 리로드 -->
+  <script>
+    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+      let _lastMod = '';
+      setInterval(async () => {
+        try {
+          const r = await fetch(location.href, { method: 'HEAD', cache: 'no-cache' });
+          const mod = r.headers.get('last-modified') || r.headers.get('etag') || '';
+          if (_lastMod && mod && mod !== _lastMod) location.reload();
+          if (mod) _lastMod = mod;
+        } catch(e) {}
+      }, 800);
+    }
+  </script>
+  <title>간판 시안 편집기 v3</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #0f0f13;
+      --surf:    #1a1a24;
+      --surf2:   #22222e;
+      --bdr:     #2e2e3e;
+      --accent:  #6c8ef5;
+      --txt:     #e8e8ee;
+      --muted:   #666;
+      --danger:  #e05c5c;
+      --success: #3ecf8e;
+    }
+
+    body {
+      font-family: 'Pretendard', 'Apple SD Gothic Neo', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--txt);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px 12px 32px;
+      gap: 12px;
+    }
+
+    /* ── 헤더 ── */
+    .header {
+      width: 100%;
+      max-width: 900px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .title { font-size: 16px; font-weight: 700; letter-spacing: -.3px; }
+    .title .brand { color: var(--accent); }
+    .title .ver   { font-size: 11px; color: #3a3a4e; font-weight: 400; margin-left: 5px; }
+
+    .toolbar { display: flex; gap: 7px; flex-wrap: wrap; }
+
+    /* ── 버튼 ── */
+    .btn {
+      padding: 7px 13px; border-radius: 7px; border: none;
+      font-size: 12px; font-weight: 500; cursor: pointer;
+      transition: opacity .15s, transform .1s;
+      white-space: nowrap; line-height: 1;
+    }
+    .btn:active  { transform: scale(.96); }
+    .btn:hover:not(:disabled) { opacity: .80; }
+    .btn:disabled { opacity: .30; cursor: default; }
+    .btn-out  { background: transparent; border: 1px solid var(--bdr); color: #ccc; }
+    .btn-acc  { background: var(--accent); color: #fff; }
+    .btn-warn { background: #d4a017; color: #1a1400; font-weight: 700; }
+    .btn-ok   { background: var(--success); color: #0d1f16; font-weight: 700; }
+    .btn-red  { background: var(--danger); color: #fff; }
+    .btn-sm   { padding: 4px 9px; font-size: 11px; border-radius: 5px; }
+    label.btn { display: inline-flex; align-items: center; }
+
+    /* ── 크롭 모드 배너 ── */
+    .crop-bar {
+      width: 100%;
+      max-width: 900px;
+      background: rgba(212,160,23,.13);
+      border: 1px solid #d4a01760;
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 12px;
+      color: #f0c040;
+      display: none;
+      align-items: center;
+      gap: 10px;
+    }
+    .crop-bar.show { display: flex; }
+    .crop-bar span { flex: 1; }
+
+    /* ── 워크스페이스 ──
+       canvas-area 와 layer-panel 을 절대 고정 폭으로 잡지 않고
+       JS 에서 Fabric cssOnly 로 캔버스를 반응형 처리함
+    ── */
+    .workspace {
+      width: 100%;
+      max-width: 900px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    /* 캔버스 영역: flex 1 로 사이드바 뺀 나머지 전부 차지 */
+    .canvas-wrap {
+      flex: 1 1 0;
+      min-width: 0;          /* flex shrink 허용 */
+      position: relative;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 8px 36px rgba(0,0,0,.6);
+      background: var(--surf);
+    }
+
+    /* Fabric 이 만드는 .canvas-container div 를 부모 너비에 맞춤 */
+    .canvas-wrap .canvas-container {
+      width: 100% !important;
+    }
+    /* 캔버스 엘리먼트 자체: CSS 너비만 100% (속성은 고정, cssOnly 방식) */
+    .canvas-wrap canvas {
+      display: block;
+    }
+
+    /* 힌트 오버레이 */
+    .hint {
+      position: absolute; inset: 0; z-index: 20;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 10px;
+      background: rgba(10,10,18,.82);
+      backdrop-filter: blur(3px);
+      pointer-events: none;
+      transition: opacity .3s;
+    }
+    .hint.off { opacity: 0; }
+    .hint .icon { font-size: 36px; }
+    .hint p { font-size: 13px; color: #bbb; text-align: center; line-height: 1.7; }
+    .hint b { color: #fff; }
+
+    /* ── 레이어 패널: 고정 너비 185px ── */
+    .layer-panel {
+      width: 185px;
+      flex-shrink: 0;          /* 절대 줄어들지 않음 */
+      background: var(--surf);
+      border: 1px solid var(--bdr);
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .lp-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--bdr);
+      font-size: 11px; font-weight: 600;
+      color: var(--muted); letter-spacing: .5px; text-transform: uppercase;
+    }
+    .layer-list {
+      overflow-y: auto; padding: 5px;
+      display: flex; flex-direction: column; gap: 4px;
+      min-height: 60px; max-height: 420px;
+    }
+    .layer-list::-webkit-scrollbar { width: 3px; }
+    .layer-list::-webkit-scrollbar-thumb { background: var(--bdr); border-radius: 2px; }
+
+    .l-empty {
+      padding: 22px 8px; text-align: center;
+      font-size: 11px; color: var(--muted); line-height: 1.8;
+    }
+
+    /* 레이어 아이템 */
+    .li {
+      background: var(--surf2); border: 1.5px solid transparent;
+      border-radius: 7px; padding: 6px 7px;
+      cursor: pointer; user-select: none;
+      transition: border-color .12s, background .12s;
+    }
+    .li:hover       { background: #262636; }
+    .li.sel         { border-color: var(--accent); background: rgba(108,142,245,.13); }
+    .li.hid         { opacity: .4; }
+    .li-top         { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+    .li-dot         { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .li-name        { font-size: 11px; font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .li-ctrl        { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; }
+    .lc {
+      height: 21px; border-radius: 3px; border: none;
+      background: transparent; color: var(--muted);
+      cursor: pointer; font-size: 11px;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .1s, color .1s; padding: 0;
+    }
+    .lc:hover     { background: rgba(255,255,255,.1); color: var(--txt); }
+    .lc.on        { color: var(--accent); }
+    .lc.del:hover { background: rgba(224,92,92,.18); color: var(--danger); }
+
+    /* 흰배경 투명 체크박스 */
+    .li-whitebg {
+      margin-top: 5px; padding-top: 5px;
+      border-top: 1px solid var(--bdr);
+    }
+    .li-whitebg label {
+      display: flex; align-items: center; gap: 5px;
+      cursor: pointer; font-size: 11px; color: var(--muted);
+      transition: color .12s;
+      user-select: none;
+    }
+    .li-whitebg label:hover { color: var(--txt); }
+    .li-whitebg label.active { color: var(--accent); }
+    .li-whitebg input[type=checkbox] {
+      accent-color: var(--accent); cursor: pointer;
+      width: 12px; height: 12px; flex-shrink: 0;
+    }
+
+    /* ── 정보바 ── */
+    .info-bar {
+      width: 100%; max-width: 900px;
+      background: var(--surf); border: 1px solid var(--bdr);
+      border-radius: 8px; padding: 8px 13px;
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    }
+    .info-txt  { flex: 1; font-size: 11.5px; color: var(--muted); line-height: 1.7; min-width: 0; }
+    .info-txt b { color: var(--txt); }
+    .opa-wrap  { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+    .opa-wrap input { width: 76px; accent-color: var(--accent); cursor: pointer; }
+    .opa-val   { min-width: 30px; text-align: right; color: var(--txt); font-size: 11.5px; }
+
+    /* ── 단축키 힌트 ── */
+    .keys { font-size: 11px; color: #303040; }
+    .keys kbd { background: #1c1c28; border: 1px solid #2e2e3e; border-radius: 3px; padding: 1px 4px; color: #555; font-family: inherit; }
+
+    /* ── JSON 출력 ── */
+    .out-box {
+      width: 100%; max-width: 900px;
+      background: #111118; border: 1px solid var(--bdr); border-radius: 10px;
+      padding: 13px 16px; font-size: 11.5px; font-family: 'Consolas', monospace;
+      color: #7ec8a0; white-space: pre-wrap; word-break: break-all; display: none;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── 헤더 ── -->
+<div class="header">
+  <div class="title"><span class="brand">간판 AI</span> 시안 편집기<span class="ver">v3</span></div>
+  <div class="toolbar" id="toolbar">
+    <label class="btn btn-out" for="bgUpload" id="lblBg">📷 건물 사진</label>
+    <input type="file" id="bgUpload" accept="image/*" style="display:none" />
+
+    <button class="btn btn-out" id="btnCrop" disabled>✂️ 영역 선택</button>
+
+    <button class="btn btn-out" id="btnShadow">💡 그림자</button>
+    <button class="btn btn-ok"  id="btnExport">✅ 견적 요청</button>
+  </div>
+</div>
+
+<!-- ── 크롭 모드 배너 ── -->
+<div class="crop-bar" id="cropBar">
+  <span>✂️ &nbsp;파란 선 안을 드래그/핸들로 조절해 원하는 영역을 선택하세요.</span>
+  <button class="btn btn-warn" id="btnCropOk">✓ 이 영역으로 확정</button>
+  <button class="btn btn-red btn-sm" id="btnCropCancel">✗ 취소</button>
+</div>
+
+<!-- ── 워크스페이스 ── -->
+<div class="workspace">
+
+  <!-- 캔버스 -->
+  <div class="canvas-wrap" id="canvasWrap">
+    <canvas id="mainCanvas"></canvas>
+    <div class="hint" id="hint">
+      <div class="icon">🏗️</div>
+      <p>먼저 <b>건물 사진</b>을 업로드하세요.<br/>이후 레이어 패널 <b>+ 추가</b>로 간판을 얹습니다.</p>
+    </div>
+  </div>
+
+  <!-- 레이어 패널 -->
+  <div class="layer-panel" id="layerPanel">
+    <div class="lp-head">
+      <span>📋 레이어</span>
+      <label class="btn btn-acc btn-sm" for="signUpload" id="lblSign">+ 추가</label>
+      <input type="file" id="signUpload" accept="image/*" style="display:none" />
+    </div>
+    <div class="layer-list" id="layerList">
+      <div class="l-empty">간판 추가 후<br/>여기에 표시</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── 정보바 ── -->
+<div class="info-bar">
+  <div class="info-txt" id="infoTxt">간판을 클릭하면 위치·크기 정보가 표시됩니다.</div>
+  <div class="opa-wrap">
+    불투명도
+    <input type="range" id="opaSlider" min="10" max="100" value="100" disabled />
+    <span class="opa-val" id="opaVal">100%</span>
+  </div>
+</div>
+
+<!-- ── 단축키 ── -->
+<div class="keys">
+  <kbd>←↑↓→</kbd> 미세이동 &nbsp;
+  <kbd>Shift+화살표</kbd> 10px &nbsp;
+  <kbd>Ctrl+D</kbd> 복제 &nbsp;
+  <kbd>Del</kbd> 삭제
+</div>
+
+<!-- ── JSON 출력 ── -->
+<div class="out-box" id="outBox"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  CANVAS — 논리 크기는 JS 변수로 관리, CSS 크기는 반응형
+// ═══════════════════════════════════════════════════════
+let CW = 600, CH = 375;   // 논리(logical) 캔버스 크기
+
+const canvas = new fabric.Canvas('mainCanvas', {
+  width: CW, height: CH,
+  backgroundColor: '#1a1a24',
+  preserveObjectStacking: true,
+});
+
+fabric.Object.prototype.set({
+  borderColor: '#6c8ef5', cornerColor: '#6c8ef5',
+  cornerStrokeColor: '#fff', cornerSize: 10,
+  cornerStyle: 'circle', transparentCorners: false, padding: 5,
+});
+
+// ── 반응형: 캔버스 CSS 크기를 컨테이너에 맞춤 ──────────────
+function fitCanvas() {
+  const wrap = document.getElementById('canvasWrap');
+  const w    = wrap.clientWidth;
+  if (!w) return;
+  const h = Math.round(w * CH / CW);
+  // cssOnly: true → 논리 좌표계 유지, Fabric 이벤트 보정 자동 처리
+  canvas.setDimensions({ width: w + 'px', height: h + 'px' }, { cssOnly: true });
+  // 레이어 패널 높이도 캔버스에 맞춤
+  const lp = document.getElementById('layerList');
+  lp.style.maxHeight = Math.max(100, h - 34) + 'px';
+}
+window.addEventListener('resize', fitCanvas);
+// 첫 렌더 후 호출 (Fabric wrapper 생성 완료 시점)
+requestAnimationFrame(() => requestAnimationFrame(fitCanvas));
+
+// 논리 캔버스 크기 변경 (사진/크롭 비율에 맞춤)
+function resizeLogical(newW, newH) {
+  CW = newW; CH = newH;
+  canvas.setDimensions({ width: CW, height: CH });
+  canvas.setBackgroundColor('#1a1a24', () => {});
+  fitCanvas();
+}
+
+// ═══════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════
+let bgImage    = null;          // fabric.Image 배경
+let bgOrigEl   = null;          // 원본 HTMLImageElement (크롭용)
+let signs      = [];            // [{ id, label, colorIdx, fabricObj, visible, locked }]
+let shadowOn   = true;
+let colorCursor = 0;
+let cropMode   = false;
+let cropRect   = null;
+
+const COLORS = ['#6c8ef5','#e05c5c','#3ecf8e','#f0a050','#b06cf5','#50d0f0','#f5c842','#f56ca0'];
+
+// ═══════════════════════════════════════════════════════
+//  UTILS
+// ═══════════════════════════════════════════════════════
+const $    = id => document.getElementById(id);
+const idx  = id => signs.findIndex(s => s.id === id);
+
+function hideHint() { $('hint').classList.add('off'); }
+
+function applyDropShadow(obj, on) {
+  obj.set('shadow', on
+    ? new fabric.Shadow({ color: 'rgba(0,0,0,.52)', blur: 22, offsetX: 4, offsetY: 7 })
+    : null);
+}
+
+function syncZOrder() {
+  const ordered = canvas.getObjects().filter(o => o.signId)
+    .map(o => signs.find(s => s.id === o.signId)).filter(Boolean);
+  signs = ordered;
+}
+
+// ═══════════════════════════════════════════════════════
+//  배경 이미지 로드 (비율 유지 — contain)
+// ═══════════════════════════════════════════════════════
+function loadBackground(url, origEl) {
+  fabric.Image.fromURL(url, img => {
+    if (!img) return;
+
+    // 1. 캔버스 논리 크기를 사진 비율에 맞게 조정 (max 640×520)
+    const MAX_W = 640, MAX_H = 520;
+    const aspect = img.width / img.height;
+    let nW, nH;
+    if (aspect >= MAX_W / MAX_H) { nW = MAX_W; nH = Math.round(MAX_W / aspect); }
+    else                         { nH = MAX_H; nW = Math.round(MAX_H * aspect); }
+    resizeLogical(nW, nH);
+
+    // 2. contain: 사진을 캔버스 안에 전부 보이게 (잘림 없음)
+    const scale = Math.min(CW / img.width, CH / img.height);
+    img.scale(scale);
+    img.set({
+      left: (CW - img.width  * scale) / 2,
+      top:  (CH - img.height * scale) / 2,
+      selectable: false, evented: false,
+      hoverCursor: 'default', name: 'background',
+    });
+
+    if (bgImage) canvas.remove(bgImage);
+    bgImage = img;
+    bgOrigEl = origEl || img.getElement();
+    canvas.insertAt(bgImage, 0);
+    canvas.renderAll();
+    hideHint();
+    $('btnCrop').disabled = false;
+  });
+}
+
+// ═══════════════════════════════════════════════════════
+//  크롭 모드
+// ═══════════════════════════════════════════════════════
+function startCropMode() {
+  if (!bgImage) return;
+  cropMode = true;
+
+  // 간판 잠시 비선택
+  signs.forEach(s => s.fabricObj.set({ selectable: false, evented: false }));
+
+  // 크롭 영역 초기값 = 배경 이미지 표시 영역 (여백 포함)
+  const bx = bgImage.left, by = bgImage.top;
+  const bw = bgImage.width * bgImage.scaleX;
+  const bh = bgImage.height * bgImage.scaleY;
+  const pad = Math.min(bw, bh) * 0.08;
+
+  cropRect = new fabric.Rect({
+    left: bx + pad, top: by + pad,
+    width: bw - pad * 2, height: bh - pad * 2,
+    fill: 'rgba(108,142,245,0.08)',
+    stroke: '#6c8ef5', strokeWidth: 2,
+    strokeDashArray: [7, 4],
+    selectable: true, evented: true,
+    name: 'cropRect', lockRotation: true,
+    cornerColor: '#fff', cornerSize: 10,
+  });
+
+  canvas.add(cropRect);
+  canvas.setActiveObject(cropRect);
+  canvas.renderAll();
+
+  $('btnCrop').disabled   = true;
+  $('lblBg').style.pointerEvents = 'none';
+  $('lblBg').style.opacity = '.3';
+  $('lblSign').style.pointerEvents = 'none';
+  $('lblSign').style.opacity = '.3';
+  $('cropBar').classList.add('show');
+}
+
+function confirmCrop() {
+  if (!cropRect || !bgImage) return;
+
+  // 크롭 rect 의 절대 좌표
+  const b = cropRect.getBoundingRect(true, true);
+
+  // bg 표시 영역
+  const bgL = bgImage.left,  bgT = bgImage.top;
+  const bgW = bgImage.width * bgImage.scaleX;
+  const bgH = bgImage.height * bgImage.scaleY;
+
+  // 겹치는 영역 (크롭이 사진 밖을 넘어가도 클램핑)
+  const ol = Math.max(b.left,       bgL);
+  const ot = Math.max(b.top,        bgT);
+  const or = Math.min(b.left + b.width,  bgL + bgW);
+  const ob = Math.min(b.top  + b.height, bgT + bgH);
+
+  if (or <= ol || ob <= ot) { alert('선택 영역이 사진과 겹치지 않습니다.'); return; }
+
+  // 캔버스 좌표 → 원본 이미지 픽셀 좌표 변환
+  const sx = bgImage.scaleX, sy = bgImage.scaleY;
+  const ix = (ol - bgL) / sx, iy = (ot - bgT) / sy;
+  const iw = (or - ol)  / sx, ih = (ob - ot)  / sy;
+
+  // temp canvas 에서 크롭
+  const tmp = document.createElement('canvas');
+  tmp.width  = Math.round(iw);
+  tmp.height = Math.round(ih);
+  tmp.getContext('2d').drawImage(bgOrigEl, ix, iy, iw, ih, 0, 0, iw, ih);
+
+  // 크롭 이미지를 새 배경으로
+  loadBackground(tmp.toDataURL('image/jpeg', 0.95), tmp);
+
+  canvas.remove(cropRect); cropRect = null;
+  endCropMode();
+}
+
+function endCropMode() {
+  cropMode = false;
+  if (cropRect) { canvas.remove(cropRect); cropRect = null; }
+  signs.forEach(s => {
+    if (!s.locked) s.fabricObj.set({ selectable: true, evented: true });
+  });
+  canvas.discardActiveObject();
+  canvas.renderAll();
+
+  $('btnCrop').disabled  = false;
+  $('lblBg').style.pointerEvents = '';
+  $('lblBg').style.opacity = '';
+  $('lblSign').style.pointerEvents = '';
+  $('lblSign').style.opacity = '';
+  $('cropBar').classList.remove('show');
+}
+
+$('btnCrop').addEventListener('click', () => cropMode ? null : startCropMode());
+$('btnCropOk').addEventListener('click', confirmCrop);
+$('btnCropCancel').addEventListener('click', endCropMode);
+
+// ═══════════════════════════════════════════════════════
+//  간판 추가 (AI 연동 시 이 함수 하나만 호출)
+// ═══════════════════════════════════════════════════════
+function addSignFromURL(url, label) {
+  if (cropMode) return;
+  fabric.Image.fromURL(url, img => {
+    if (!img) return;
+    const id     = 'sign_' + Date.now();
+    const cIdx   = colorCursor++ % COLORS.length;
+    const lbl    = label || `간판 #${signs.length + 1}`;
+    const scale  = (CW * 0.40) / img.width;
+    const offset = (signs.length % 5) * 16;
+
+    img.scale(scale);
+    img.set({
+      left: (CW - img.width  * scale) / 2 + offset,
+      top:  (CH - img.height * scale) / 2 + offset,
+      signId: id, name: lbl, lockUniScaling: false,
+    });
+    applyDropShadow(img, shadowOn);
+
+    signs.push({ id, label: lbl, colorIdx: cIdx, fabricObj: img, visible: true, locked: false,
+                 whiteRemoved: false, origURL: url });
+    canvas.add(img);
+    canvas.setActiveObject(img);
+    canvas.renderAll();
+    renderPanel();
+    updateInfo(img);
+    hideHint();
+  }, { crossOrigin: 'anonymous' });
+}
+
+// ═══════════════════════════════════════════════════════
+//  레이어 조작
+// ═══════════════════════════════════════════════════════
+function doVis(i) {
+  const s = signs[i]; s.visible = !s.visible;
+  s.fabricObj.set('visible', s.visible);
+  if (!s.visible && canvas.getActiveObject() === s.fabricObj) {
+    canvas.discardActiveObject(); updateInfo(null);
+  }
+  canvas.renderAll(); renderPanel();
+}
+function doLock(i) {
+  const s = signs[i]; s.locked = !s.locked;
+  s.fabricObj.set({ selectable: !s.locked, evented: !s.locked, hoverCursor: s.locked ? 'default' : 'move' });
+  if (s.locked && canvas.getActiveObject() === s.fabricObj) {
+    canvas.discardActiveObject(); updateInfo(null);
+  }
+  canvas.renderAll(); renderPanel();
+}
+function doUp(i) {
+  canvas.bringForward(signs[i].fabricObj); syncZOrder(); renderPanel();
+}
+function doDown(i) {
+  const objs = canvas.getObjects();
+  const oi   = objs.indexOf(signs[i].fabricObj);
+  if (oi > (bgImage ? 1 : 0)) { canvas.sendBackwards(signs[i].fabricObj); syncZOrder(); }
+  renderPanel();
+}
+function doDup(i) {
+  signs[i].fabricObj.clone(cl => {
+    const id = 'sign_' + Date.now(), lbl = signs[i].label + ' 복사';
+    cl.set({ left: signs[i].fabricObj.left + 20, top: signs[i].fabricObj.top + 20, signId: id, name: lbl });
+    applyDropShadow(cl, shadowOn);
+    signs.push({ id, label: lbl, colorIdx: colorCursor++ % COLORS.length, fabricObj: cl, visible: true, locked: false });
+    canvas.add(cl); canvas.setActiveObject(cl);
+    canvas.renderAll(); renderPanel(); updateInfo(cl);
+  });
+}
+function doDel(i) {
+  canvas.remove(signs[i].fabricObj); signs.splice(i, 1);
+  canvas.discardActiveObject(); canvas.renderAll(); updateInfo(null); renderPanel();
+}
+
+// ═══════════════════════════════════════════════════════
+//  흰배경 투명처리
+// ═══════════════════════════════════════════════════════
+
+/**
+ * 흰색/근사흰색 픽셀을 투명으로 변환
+ * - origURL(data URL)로 새 Image 를 직접 생성해서 그림 → getImageData CORS 문제 원천 차단
+ * - Promise 반환
+ */
+function removeWhiteBg(srcURL, threshold = 235) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();          // crossOrigin 미설정 = data URL 은 항상 same-origin
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width  = img.naturalWidth;
+      c.height = img.naturalHeight;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+
+      let imageData;
+      try {
+        imageData = ctx.getImageData(0, 0, c.width, c.height);
+      } catch(e) {
+        reject('getImageData 실패: ' + e.message); return;
+      }
+
+      const d = imageData.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const r = d[i], g = d[i+1], b = d[i+2];
+        // R, G, B 모두 threshold 이상이면 완전 투명
+        if (r >= threshold && g >= threshold && b >= threshold) {
+          d[i+3] = 0;
+        }
+      }
+
+      ctx.putImageData(imageData, 0, 0);
+      resolve(c.toDataURL('image/png'));
+    };
+    img.onerror = () => reject('이미지 로드 실패');
+    img.src = srcURL;
+  });
+}
+
+/** 흰배경 제거 토글 (원본 origURL 보존 → 언제든 복원 가능) */
+async function doWhiteBg(i, enable) {
+  const sign = signs[i];
+  if (enable === sign.whiteRemoved) return;
+
+  const obj      = sign.fabricObj;
+  const zIdx     = canvas.getObjects().indexOf(obj);
+  const wasActive = canvas.getActiveObject() === obj;
+
+  // 현재 sign 의 transform 저장
+  const meta = {
+    left: obj.left, top: obj.top,
+    scaleX: obj.scaleX, scaleY: obj.scaleY,
+    angle: obj.angle, opacity: obj.opacity ?? 1,
+    signId: obj.signId, name: obj.name,
+    lockUniScaling: false,
+  };
+
+  let targetURL;
+  if (enable) {
+    try {
+      targetURL = await removeWhiteBg(sign.origURL);
+    } catch(e) {
+      console.error('흰배경 제거 실패:', e);
+      // 체크박스 원복
+      sign.whiteRemoved = false;
+      renderPanel();
+      return;
+    }
+  } else {
+    targetURL = sign.origURL;
+  }
+
+  sign.whiteRemoved = enable;
+
+  fabric.Image.fromURL(targetURL, newImg => {
+    if (!newImg) return;
+    newImg.set(meta);
+    applyDropShadow(newImg, shadowOn);
+    canvas.remove(obj);
+    canvas.insertAt(newImg, Math.max(0, zIdx));
+    sign.fabricObj = newImg;
+    if (wasActive) { canvas.setActiveObject(newImg); updateInfo(newImg); }
+    canvas.renderAll();
+    renderPanel();
+  });
+}
+
+// ═══════════════════════════════════════════════════════
+//  레이어 패널
+// ═══════════════════════════════════════════════════════
+function renderPanel() {
+  const list = $('layerList');
+  const aid  = canvas.getActiveObject()?.signId;
+  if (!signs.length) {
+    list.innerHTML = '<div class="l-empty">간판 추가 후<br/>여기에 표시</div>'; return;
+  }
+  list.innerHTML = [...signs].reverse().map(s => {
+    const c = COLORS[s.colorIdx % COLORS.length];
+    return `<div class="li${s.id===aid?' sel':''}${!s.visible?' hid':''}" data-id="${s.id}">
+      <div class="li-top">
+        <span class="li-dot" style="background:${c}"></span>
+        <span class="li-name" title="${s.label}">${s.label}</span>
+      </div>
+      <div class="li-ctrl">
+        <button class="lc${s.visible?' on':''}"  data-a="vis"  data-id="${s.id}" title="표시/숨김">${s.visible?'👁':'🙈'}</button>
+        <button class="lc${s.locked?' on':''}"   data-a="lock" data-id="${s.id}" title="잠금">${s.locked?'🔒':'🔓'}</button>
+        <button class="lc" data-a="up"   data-id="${s.id}" title="앞으로">↑</button>
+        <button class="lc" data-a="down" data-id="${s.id}" title="뒤로">↓</button>
+        <button class="lc" data-a="dup"  data-id="${s.id}" title="복제">⧉</button>
+        <button class="lc del" data-a="del" data-id="${s.id}" title="삭제">🗑</button>
+      </div>
+      <div class="li-whitebg">
+        <label class="${s.whiteRemoved?'active':''}">
+          <input type="checkbox" class="wb-cb" data-id="${s.id}" ${s.whiteRemoved?'checked':''} />
+          ⬜ 흰배경 투명처리
+        </label>
+      </div>
+    </div>`;
+  }).join('');
+
+  list.onclick = e => {
+    // 체크박스 클릭은 onchange 에서 처리
+    if (e.target.matches('.wb-cb')) return;
+
+    const btn  = e.target.closest('[data-a]');
+    const item = e.target.closest('.li');
+    if (!btn && !item) return;
+    const id = (btn||item).dataset.id;
+    const i  = idx(id); if (i < 0) return;
+    if (btn) {
+      e.stopPropagation();
+      const a = btn.dataset.a;
+      if      (a==='vis')  doVis(i);
+      else if (a==='lock') doLock(i);
+      else if (a==='up')   doUp(i);
+      else if (a==='down') doDown(i);
+      else if (a==='dup')  doDup(i);
+      else if (a==='del')  doDel(i);
+    } else {
+      canvas.setActiveObject(signs[i].fabricObj);
+      canvas.renderAll(); updateInfo(signs[i].fabricObj); renderPanel();
+    }
+  };
+
+  // 흰배경 투명 체크박스 change 이벤트
+  list.onchange = e => {
+    if (!e.target.matches('.wb-cb')) return;
+    const i = idx(e.target.dataset.id);
+    if (i >= 0) doWhiteBg(i, e.target.checked);
+  };
+}
+
+// ═══════════════════════════════════════════════════════
+//  정보바 + 불투명도
+// ═══════════════════════════════════════════════════════
+function updateInfo(obj) {
+  const sl = $('opaSlider'), vl = $('opaVal');
+  if (!obj?.signId) {
+    $('infoTxt').innerHTML = '간판을 클릭하면 위치·크기 정보가 표시됩니다.';
+    sl.disabled = true; sl.value = 100; vl.textContent = '100%'; return;
+  }
+  const w = Math.round(obj.width * obj.scaleX), h = Math.round(obj.height * obj.scaleY);
+  $('infoTxt').innerHTML =
+    `<b>${obj.name}</b> &nbsp;|&nbsp;위치 <b>(${Math.round(obj.left)}, ${Math.round(obj.top)})</b>` +
+    ` &nbsp;|&nbsp;크기 <b>${w}×${h}px</b> &nbsp;|&nbsp;회전 <b>${Math.round(obj.angle)}°</b>` +
+    ` &nbsp;|&nbsp;scale <b>${obj.scaleX.toFixed(3)}</b>`;
+  const pct = Math.round((obj.opacity??1)*100);
+  sl.disabled = false; sl.value = pct; vl.textContent = pct + '%';
+}
+
+$('opaSlider').addEventListener('input', function() {
+  const a = canvas.getActiveObject();
+  if (!a?.signId) return;
+  a.set('opacity', this.value / 100); canvas.renderAll();
+  $('opaVal').textContent = this.value + '%';
+});
+
+// ═══════════════════════════════════════════════════════
+//  파일 업로드
+// ═══════════════════════════════════════════════════════
+$('bgUpload').addEventListener('change', function(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const img  = new Image();
+  img.onload = () => loadBackground(img.src, img);
+  img.src    = URL.createObjectURL(file);
+  this.value = '';
+});
+
+$('signUpload').addEventListener('change', function(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => addSignFromURL(ev.target.result);
+  reader.readAsDataURL(file); this.value = '';
+});
+
+// ═══════════════════════════════════════════════════════
+//  툴바
+// ═══════════════════════════════════════════════════════
+$('btnShadow').addEventListener('click', () => {
+  shadowOn = !shadowOn;
+  signs.forEach(s => applyDropShadow(s.fabricObj, shadowOn));
+  canvas.renderAll();
+  $('btnShadow').textContent = shadowOn ? '💡 그림자' : '💡 그림자 OFF';
+});
+
+$('btnExport').addEventListener('click', () => {
+  if (!bgImage)      { alert('건물 사진을 먼저 업로드해주세요.'); return; }
+  if (!signs.length) { alert('배치된 간판이 없습니다.'); return; }
+  const payload = {
+    version: '1.0', requestedAt: new Date().toISOString(),
+    canvas: { width: CW, height: CH },
+    signs: signs.map((s, zi) => {
+      const o = s.fabricObj;
+      return { id: s.id, label: s.label, zIndex: zi,
+        left: +o.left.toFixed(2), top: +o.top.toFixed(2),
+        scaleX: +o.scaleX.toFixed(4), scaleY: +o.scaleY.toFixed(4),
+        angle: +o.angle.toFixed(2), opacity: +((o.opacity??1).toFixed(2)),
+        renderedW: Math.round(o.width*o.scaleX), renderedH: Math.round(o.height*o.scaleY),
+        srcW: o.width, srcH: o.height, visible: s.visible, locked: s.locked };
+    }),
+  };
+  const box = $('outBox');
+  box.style.display = 'block';
+  box.textContent = JSON.stringify(payload, null, 2);
+  box.scrollIntoView({ behavior: 'smooth' });
+});
+
+// ═══════════════════════════════════════════════════════
+//  캔버스 이벤트
+// ═══════════════════════════════════════════════════════
+canvas.on('selection:created', e => { updateInfo(e.selected?.[0]); renderPanel(); });
+canvas.on('selection:updated', e => { updateInfo(e.selected?.[0]); renderPanel(); });
+canvas.on('selection:cleared', ()  => { updateInfo(null); renderPanel(); });
+canvas.on('object:modified',   e => updateInfo(e.target));
+canvas.on('object:scaling',    e => updateInfo(e.target));
+canvas.on('object:moving',     e => updateInfo(e.target));
+canvas.on('object:rotating',   e => updateInfo(e.target));
+
+// ═══════════════════════════════════════════════════════
+//  키보드 단축키
+// ═══════════════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  if (e.target.matches('input,textarea')) return;
+  if (cropMode && e.key === 'Escape') { endCropMode(); return; }
+  if (cropMode) return;
+
+  if (e.key==='Delete'||e.key==='Backspace') {
+    canvas.getActiveObjects().forEach(o => { if (o.signId) { const i=idx(o.signId); if(i>=0) doDel(i); } });
+    return;
+  }
+  if ((e.ctrlKey||e.metaKey) && e.key==='d') {
+    e.preventDefault();
+    const a = canvas.getActiveObject();
+    if (a?.signId) { const i=idx(a.signId); if(i>=0) doDup(i); }
+    return;
+  }
+  const o = canvas.getActiveObject();
+  if (!o?.signId) return;
+  const s = e.shiftKey ? 10 : 1;
+  if (e.key==='ArrowLeft')  { o.set('left', o.left-s); e.preventDefault(); }
+  if (e.key==='ArrowRight') { o.set('left', o.left+s); e.preventDefault(); }
+  if (e.key==='ArrowUp')    { o.set('top',  o.top-s);  e.preventDefault(); }
+  if (e.key==='ArrowDown')  { o.set('top',  o.top+s);  e.preventDefault(); }
+  canvas.renderAll(); updateInfo(o);
+});
+
+// 초기화
+renderPanel();
+</script>
+</body>
+</html>
