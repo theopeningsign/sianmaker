@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 간판 시안 — 상세 종류 선택</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif;
+    background: #f0f2f5;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* ── 헤더 ── */
+  header {
+    width: 100%;
+    background: #fff;
+    border-bottom: 1px solid #e0e0e0;
+    padding: 16px 32px;
+    display: flex;
+    align-items: center;
+  }
+  .logo { font-size: 20px; font-weight: 800; color: #1a1a2e; letter-spacing: -0.5px; }
+  .logo span { color: #4f6ef7; }
+
+  /* ── 스텝바 ── */
+  .steps {
+    display: flex;
+    align-items: center;
+    margin: 28px auto 0;
+    width: min(560px, 90vw);
+  }
+  .step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    flex: 1;
+    position: relative;
+  }
+  .step:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    top: 15px;
+    left: 50%;
+    width: 100%;
+    height: 2px;
+    background: #e0e0e0;
+    z-index: 0;
+  }
+  .step.done::after { background: #4f6ef7; }
+  .step-num {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: #e0e0e0;
+    color: #999;
+    font-size: 13px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    position: relative; z-index: 1;
+    transition: all .2s;
+  }
+  .step.active .step-num { background: #4f6ef7; color: #fff; box-shadow: 0 0 0 4px #dde4ff; }
+  .step.done  .step-num { background: #4f6ef7; color: #fff; }
+  .step.done { cursor: pointer; }
+  .step.done:hover .step-num { background: #3a57e8; }
+  .step.done:hover .step-label { color: #3a57e8; }
+  .step-label { font-size: 11px; color: #aaa; font-weight: 500; white-space: nowrap; }
+  .step.active .step-label { color: #4f6ef7; font-weight: 700; }
+  .step.done  .step-label { color: #4f6ef7; }
+
+  /* ── 메인 ── */
+  main {
+    width: min(960px, 96vw);
+    margin: 22px auto 60px;
+  }
+
+  .section-title { text-align: center; margin-bottom: 16px; }
+  .section-title h2 { font-size: 22px; font-weight: 800; color: #1a1a2e; letter-spacing: -0.5px; }
+  .section-title p  { font-size: 13px; color: #888; margin-top: 5px; }
+
+  /* ── 브레드크럼 ── */
+  .breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 20px;
+    font-size: 13px;
+  }
+  .bc-type {
+    background: #4f6ef7;
+    color: #fff;
+    padding: 4px 13px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .bc-type:hover { background: #3a57e8; }
+  .bc-arrow { color: #bbb; font-size: 16px; }
+  .bc-current { color: #555; font-weight: 600; }
+
+  /* ── 뒤로가기 버튼 ── */
+  .back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: none;
+    border: none;
+    color: #888;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0;
+    margin-bottom: 14px;
+    font-family: inherit;
+    transition: color .15s;
+  }
+  .back-btn:hover { color: #1a1a2e; }
+  .back-btn::before { content: '←'; font-size: 15px; }
+
+  /* ── 카드 그리드 ── */
+  .cards-grid {
+    display: grid;
+    gap: 14px;
+    align-items: start;
+  }
+
+  /* ── 카드 ── */
+  .card {
+    background: #1c1c2e;
+    border-radius: 14px;
+    overflow: hidden;
+    cursor: pointer;
+    border: 2.5px solid transparent;
+    transition: border-color .2s, box-shadow .2s, transform .15s;
+    user-select: none;
+  }
+  .card:hover {
+    border-color: #4f6ef7;
+    box-shadow: 0 0 0 3px rgba(79,110,247,.2);
+    transform: translateY(-2px);
+  }
+  .card.selected {
+    border-color: #4f6ef7;
+    box-shadow: 0 0 0 4px rgba(79,110,247,.3);
+    transform: translateY(-2px);
+  }
+
+  .card-header {
+    padding: 11px 14px;
+  }
+  .card-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.3px;
+  }
+
+  /* 카드 이미지 */
+  .card-img-wrap {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    background: #252540;
+    overflow: hidden;
+  }
+  .card-img-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top;
+    display: block;
+    transition: transform .3s;
+  }
+  .card:hover .card-img-wrap img { transform: scale(1.04); }
+  .card-img-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255,255,255,.18);
+    font-size: 13px;
+    font-weight: 600;
+    background: linear-gradient(135deg, #1e1e32 0%, #2a2a44 100%);
+  }
+
+  /* ── 설명 패널 ── */
+  .desc-panel {
+    display: none;
+    margin-top: 16px;
+    background: #fff;
+    border: 2px solid #4f6ef7;
+    border-radius: 14px;
+    padding: 16px 20px;
+    animation: fadeUp .2s ease;
+  }
+  .desc-panel.show { display: block; }
+  /* 그리드 안에 들어갈 때 (모바일) */
+  .desc-panel.in-grid {
+    grid-column: 1 / -1;
+    margin-top: 0;
+  }
+  .desc-panel-name {
+    font-size: 15px;
+    font-weight: 800;
+    color: #1a1a2e;
+    margin-bottom: 6px;
+    letter-spacing: -0.3px;
+  }
+  .desc-panel-text {
+    font-size: 13px;
+    color: #555;
+    line-height: 1.65;
+  }
+  .desc-panel-link {
+    display: inline-block;
+    margin-top: 10px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #4f6ef7;
+    cursor: pointer;
+    text-decoration: none;
+    border-bottom: 1.5px solid rgba(79,110,247,.3);
+    transition: color .15s, border-color .15s;
+  }
+  .desc-panel-link:hover { color: #3a57e8; border-color: #3a57e8; }
+
+  /* ── 시공방식 섹션 ── */
+  .install-section {
+    margin-top: 36px;
+    padding-top: 30px;
+    border-top: 2px solid #e4e8ff;
+    display: none;
+    animation: fadeUp .3s ease;
+  }
+  .install-section.show { display: block; }
+
+  .install-section-title {
+    font-size: 17px;
+    font-weight: 800;
+    color: #1a1a2e;
+    letter-spacing: -0.4px;
+    margin-bottom: 4px;
+  }
+  .install-section-sub {
+    font-size: 13px;
+    color: #888;
+    margin-bottom: 18px;
+  }
+
+  .install-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+  @media (max-width: 600px) {
+    .install-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  .install-card {
+    background: #1c1c2e;
+    border: 2.5px solid transparent;
+    border-radius: 14px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color .2s, box-shadow .2s, transform .15s;
+    user-select: none;
+  }
+  .install-card:hover {
+    border-color: #4f6ef7;
+    box-shadow: 0 0 0 3px rgba(79,110,247,.2);
+    transform: translateY(-2px);
+  }
+  .install-card.selected {
+    border-color: #4f6ef7;
+    box-shadow: 0 0 0 4px rgba(79,110,247,.3);
+    transform: translateY(-2px);
+  }
+  .install-card-img {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    background: #252540;
+    overflow: hidden;
+  }
+  .install-card-img img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform .3s;
+  }
+  .install-card:hover .install-card-img img { transform: scale(1.04); }
+  .install-card-img-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255,255,255,.18);
+    font-size: 12px;
+    background: linear-gradient(135deg, #1e1e32 0%, #2a2a44 100%);
+  }
+  .install-card-body {
+    padding: 11px 14px 13px;
+  }
+  .install-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 5px;
+    letter-spacing: -0.3px;
+  }
+  .install-desc {
+    font-size: 11.5px;
+    color: rgba(255,255,255,.55);
+    line-height: 1.55;
+  }
+
+  /* ── 힌트 ── */
+  .hint {
+    text-align: center;
+    font-size: 13px;
+    color: #aaa;
+    margin-top: 20px;
+    animation: pulse 2.5s ease infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
+
+  /* ── 다음 버튼 ── */
+  .btn-next {
+    display: none;
+    margin: 24px auto 0;
+    width: min(340px, 86vw);
+    padding: 15px;
+    background: #4f6ef7;
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: -0.3px;
+    transition: background .15s, transform .1s;
+    animation: fadeUp .25s ease;
+  }
+  .btn-next.show { display: block; }
+  .btn-next:hover  { background: #3a57e8; }
+  .btn-next:active { transform: scale(.98); }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── 모바일 ── */
+  @media (max-width: 480px) {
+    .card-name { font-size: 13px; }
+    .install-name { font-size: 13px; }
+    .install-section-title { font-size: 15px; }
+  }
+
+  /* 모바일 플로팅 다음 버튼 */
+  @media (max-width: 720px) {
+    .btn-next.show {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      width: 100%;
+      margin: 0;
+      border-radius: 0;
+      border-top: 1px solid rgba(255,255,255,.15);
+      padding: 16px;
+      z-index: 200;
+      animation: slideUp .25s ease;
+    }
+    @keyframes slideUp {
+      from { transform: translateY(100%); opacity: 0; }
+      to   { transform: translateY(0);    opacity: 1; }
+    }
+    /* 버튼 높이만큼 하단 여백 확보 */
+    main { padding-bottom: 70px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">사인<span>메이커</span> AI</div>
+</header>
+
+<div class="steps">
+  <div class="step done" onclick="goBack()">
+    <div class="step-num">1</div>
+    <div class="step-label">간판 종류</div>
+  </div>
+  <div class="step active">
+    <div class="step-num">2</div>
+    <div class="step-label">간판 상세 종류</div>
+  </div>
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-label">사이즈 · 문구</div>
+  </div>
+  <div class="step">
+    <div class="step-num">4</div>
+    <div class="step-label">AI 시안 생성</div>
+  </div>
+</div>
+
+<main>
+  <div class="section-title">
+    <h2>어떤 종류를 원하세요?</h2>
+    <p>원하는 상세 종류를 선택하세요</p>
+  </div>
+
+  <button class="back-btn" onclick="goBack()">이전 단계</button>
+
+  <div class="breadcrumb">
+    <span class="bc-type" id="bcType" onclick="goBack()"></span>
+    <span class="bc-arrow">›</span>
+    <span class="bc-current">상세 종류 선택</span>
+  </div>
+
+  <!-- 카드 그리드 -->
+  <div class="cards-grid" id="cardsGrid"></div>
+
+  <!-- 선택 설명 패널 -->
+  <div class="desc-panel" id="descPanel">
+    <div class="desc-panel-name" id="descPanelName"></div>
+    <div class="desc-panel-text" id="descPanelText"></div>
+    <a class="desc-panel-link" id="descPanelLink" style="display:none;"
+       onclick="scrollToInstall()">시공 방식 선택 바로가기</a>
+  </div>
+
+  <!-- 시공방식 (전면간판 채널/스카시 선택 시만 표시) -->
+  <div class="install-section" id="installSection">
+    <div class="install-section-title">시공 방식을 선택해주세요</div>
+    <div class="install-section-sub">간판 글자를 어떤 방식으로 벽에 시공할지 선택해주세요</div>
+    <div class="install-grid" id="installGrid"></div>
+  </div>
+
+  <div class="hint" id="hint">원하는 간판 종류를 선택하세요</div>
+
+  <button class="btn-next" id="btnNext" onclick="goNext()">다음 단계로 →</button>
+</main>
+
+<script>
+  /* ── 데이터 ────────────────────────────────────────── */
+  const SUBTYPES = {
+    '전면간판': [
+      { id: '채널간판',       name: '채널간판',       img: 'img/step2/전면간판-채널.jpg',
+        desc: 'LED조명이 있는 글자 간판으로 주간, 야간 전부 가독성이 높은 간판입니다. 갈바, 알루미늄, 아크릴 등 다양한 재질을 사용하여 제작이 가능하며, 이에 따라 가격이 달라집니다.' },
+      { id: '스카시간판',     name: '스카시간판',     img: 'img/step2/전면간판-스카시.jpg',
+        desc: '다양한 소재를 레이저로 오려내 제작하는 LED 조명이 없는 글자 간판입니다. 주간에 보기 좋으며, 외부 조명을 함께 설치하면 야간에도 느낌있는 간판을 연출할 수 있습니다.' },
+      { id: '플렉스간판',     name: '플렉스간판',     img: 'img/step2/전면간판-플렉스.jpg',
+        desc: '비닐 원단 소재에 간판 디자인을 인쇄하여 부착하는 간판입니다. 디자인 표현에 한계가 없고 제작 시간이 짧은 편입니다.' },
+      { id: '네온간판',       name: '네온간판',       img: 'img/step2/전면간판-네온.jpg',
+        desc: '다양한 색상과 조명으로 이목을 끌 수 있고 감각적인 느낌을 연출할 수 있는 간판입니다. 주간보다 야간에 시인성이 좋아 야간에 주로 영업하는 가게에서 많이 사용합니다.' },
+      { id: '스텐실간판',     name: '스텐실간판',     img: 'img/step2/전면간판-스텐실.jpg',
+        desc: '종이나 시트지 위에 도안을 그리고 오려낸 후 원하는 곳에 붙여 모양 위에 페인트나 스프레이를 사용하여 제작하는 간판입니다. 벽돌벽이나 노출 콘크리트벽에 잘 어울립니다.' },
+      { id: '포인트형전면간판', name: '포인트형전면간판', img: 'img/step2/전면간판-포인트형.jpg',
+        desc: '보조간판으로 사용되던 미니멀한 간판을 전면에 부착하여 포인트를 주는 간판입니다. 보통 LED 박스형 간판이라고 불리기도 하며 아크릴, 철제 등 다양한 재질이 사용됩니다.' },
+      { id: '금속철제간판',   name: '금속철제간판',   img: 'img/step2/전면간판-금속철제.jpg',
+        desc: '금속 느낌을 전면에 부각한 간판입니다. 레이저 타공 시 프레임 내부 조명 추가가 가능하며, 금속 부식 정도에 따라 빈티지함부터 고급스러움까지 연출할 수 있습니다.' },
+      { id: '기타',           name: '기타',           img: 'img/step2/전면간판-기타.jpg',
+        desc: '우드타입 간판, 입체 조형물 간판 등 기타 다른 간판을 원하는 경우 선택해주세요.' },
+    ],
+    '돌출간판': [
+      { id: '채널',     name: '채널',     img: 'img/step2/돌출간판-채널.jpg',
+        desc: '조명이 있는 글자 돌출 간판으로 가독성이 높은 간판입니다. 다양한 재질을 사용하여 제작이 가능합니다.' },
+      { id: '플렉스',   name: '플렉스',   img: 'img/step2/돌출간판-플렉스.jpg',
+        desc: '비닐 원단 소재에 간판 디자인을 인쇄하는 방식으로 다양한 표현이 가능하고 제작 시간이 짧고 저렴한 편이나, 프레임의 크기에 따라 달라집니다.' },
+      { id: '포인트',   name: '포인트',   img: 'img/step2/돌출간판-포인트.jpg',
+        desc: '가게의 포인트를 주기 위한 소형 돌출 간판으로 아크릴, 스텐 등의 재질로 틀을 제작합니다. 디자인은 보통 플렉스 원단에 인쇄하여 부착하여 내부에 LED가 들어갑니다.' },
+      { id: '포인트-큐브', name: '포인트-큐브', img: 'img/step2/돌출간판-포인트큐브.jpg',
+        desc: '가게의 포인트를 주기 위한 소형 돌출 간판으로 보통 아크릴 재질로 사각 틀을 제작합니다. 각 면에 다른 디자인을 넣을 수 있고 내부에 LED가 들어갑니다.' },
+      { id: '네온',     name: '네온',     img: 'img/step2/돌출간판-네온.jpg',
+        desc: '네온사인을 활용한 돌출 간판으로 특색있는 분위기를 제공합니다. 낮보다 밤에 고객의 이목을 끌 수 있으며, 디자인이 중요합니다.' },
+      { id: '패브릭',   name: '패브릭',   img: 'img/step2/돌출간판-패브릭.jpg',
+        desc: '프레임 위에 패브릭 소재를 부착하여 만들며, 디자인에 따라 가게의 분위기를 바꿀 수 있습니다. 밤보다 낮에 고객의 이목을 끌 수 있습니다.' },
+      { id: '기타조형물', name: '기타 조형물', img: 'img/step2/돌출간판-기타조형물.jpg',
+        desc: '다양한 형태로 제작되는 조형물 간판으로 디자인에 따라 비용이 천차만별이며, 그 가게만의 느낌을 살릴 수 있습니다.' },
+    ],
+    '어닝간판': [
+      { id: '고정식', name: '고정식', img: 'img/step2/어닝간판-고정식.jpg',
+        desc: '간판 대용으로 고정하여 설치한 어닝 간판입니다. 일반적으로 패브릭 소재를 덧대어 제작하며, 건물의 미적 이미지를 바꿀 수 있습니다.' },
+      { id: '접이식', name: '접이식', img: 'img/step2/어닝간판-접이식.jpg',
+        desc: '간판 밑에 설치한 접이식 어닝 간판입니다. 일반 차양 목적 외에도 가게의 미적 이미지를 바꿀 수 있습니다.' },
+      { id: '기타',   name: '기타',   img: 'img/step2/어닝간판-기타.jpg',
+        desc: '스카이(전자동 지붕식), 프라자(루프탑이나 테라스에 설치하는 지붕식) 어닝, 채널과 접목한 하이브리드 등 특수 어닝을 원하는 경우 선택해주세요.' },
+    ],
+    '지주형간판': [
+      { id: '플렉스', name: '플렉스', img: 'img/step2/지주형간판-플렉스.jpg',
+        desc: '설치 위치 바닥에 기초공사를 하고 간판 지주를 따로 설치한 다음 플렉스 간판을 시공합니다.' },
+      { id: '기타',   name: '기타',   img: 'img/step2/지주형간판-기타.jpg',
+        desc: '플렉스 소재를 제외한 기타 다른 소재의 지주형 간판입니다.' },
+    ],
+    '실내간판': [
+      { id: '채널',     name: '채널',     img: 'img/step2/실내간판-채널.jpg',
+        desc: '실내에 설치하는 LED 채널 간판으로 고급스러운 분위기를 연출할 수 있습니다.' },
+      { id: '스카시',   name: '스카시',   img: 'img/step2/실내간판-스카시.jpg',
+        desc: '실내에 설치하는 글자형 간판입니다. 간접 조명을 추가 시 분위기 있는 연출을 할 수 있습니다.' },
+      { id: '현판/표찰', name: '현판/표찰', img: 'img/step2/실내간판-현판표찰.jpg',
+        desc: '실내에 설치하는 현판, 표찰로 금속, 아크릴, 우드 등 다양한 소재로 제작할 수 있습니다.' },
+      { id: '네온사인', name: '네온사인', img: 'img/step2/실내간판-네온사인.jpg',
+        desc: '다양한 색상과 조명으로 화려한 이목을 끌 수 있는 간판으로 야간에 시인성이 좋고 전기 소모량이 많습니다.' },
+      { id: '기타',     name: '기타',     img: 'img/step2/실내간판-기타.jpg',
+        desc: '기타 다른 소재나 디자인의 실내 간판이나, 메뉴판 등 원하는 경우 선택해주세요.' },
+    ],
+  };
+
+  const INSTALL_DATA = [
+    { id: '전면프레임', name: '전면프레임', img: 'img/step2/전면프레임.JPG',
+      desc: '벽에 배경 역할을 하는 갈바 프레임 등을 설치하고 그 위에 간판 글자를 부착하는 방식입니다.' },
+    { id: '프레임바',   name: '프레임바',   img: 'img/step2/프레임바.JPG',
+      desc: '벽에 갈바나 알루미늄 바 등을 설치한 후 그 위에 간판 글자를 부착하는 방식입니다.' },
+    { id: '맨벽',       name: '맨벽',       img: 'img/step2/맨벽.JPG',
+      desc: '맨 벽에 바로 간판 글자를 시공하는 방법입니다.' },
+    { id: '파사드',     name: '파사드',     img: 'img/step2/파사드.JPG',
+      desc: '가게 외벽 전체를 감쌀 수 있게 표현하는 방식입니다. 간판 프레임은 간판 업체가, 나머지 영역은 인테리어 업체가 담당합니다.' },
+  ];
+
+  // 시공방식 필요한 세부종류
+  const NEEDS_INSTALL = ['채널간판', '스카시간판'];
+
+  /* ── 상태 ────────────────────────────────────────── */
+  const signType = localStorage.getItem('signType') || '전면간판';
+  let selectedSubType  = null;
+  let selectedInstall  = null;
+
+  /* ── 그리드 컬럼 (간판 종류별) ── */
+  const GRID_COLS = {
+    '전면간판':  4,
+    '돌출간판':  4,
+    '어닝간판':  3,
+    '지주형간판': 2,
+    '실내간판':  4,
+  };
+
+  /* ── 초기화 ────────────────────────────────────────── */
+  document.getElementById('bcType').textContent = signType;
+
+  (function init() {
+    const cols = GRID_COLS[signType] || 4;
+    const grid = document.getElementById('cardsGrid');
+    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+
+    const items = SUBTYPES[signType] || [];
+    grid.innerHTML = items.map(item => `
+      <div class="card" data-id="${escId(item.id)}" onclick="selectSubType('${escId(item.id)}')">
+        <div class="card-header">
+          <span class="card-name">${item.name}</span>
+        </div>
+        <div class="card-img-wrap">
+          <img src="${item.img}" alt="${item.name}"
+               onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+          <div class="card-img-placeholder" style="display:none;">${item.name}</div>
+        </div>
+      </div>
+    `).join('');
+
+    // 시공방식 카드 렌더
+    document.getElementById('installGrid').innerHTML = INSTALL_DATA.map(item => `
+      <div class="install-card" data-id="${item.id}" onclick="selectInstall('${item.id}')">
+        <div class="install-card-img">
+          <img src="${item.img}" alt="${item.name}"
+               onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+          <div class="install-card-img-placeholder" style="display:none;">${item.name}</div>
+        </div>
+        <div class="install-card-body">
+          <div class="install-name">${item.name}</div>
+          <div class="install-desc">${item.desc}</div>
+        </div>
+      </div>
+    `).join('');
+
+    // 모바일 카드 컬럼 보정
+    applyMobileCols();
+    window.addEventListener('resize', applyMobileCols);
+  })();
+
+  function applyMobileCols() {
+    const w = window.innerWidth;
+    const grid = document.getElementById('cardsGrid');
+    const base = GRID_COLS[signType] || 4;
+    if (w <= 480)       grid.style.gridTemplateColumns = 'repeat(2, 1fr)';
+    else if (w <= 720)  grid.style.gridTemplateColumns = `repeat(${Math.min(base, 3)}, 1fr)`;
+    else                grid.style.gridTemplateColumns = `repeat(${base}, 1fr)`;
+  }
+
+  /* ── 설명 패널 위치 제어 ────────────────────────────── */
+  function positionDescPanel(selectedCardEl) {
+    const grid   = document.getElementById('cardsGrid');
+    const panel  = document.getElementById('descPanel');
+
+    // 1) 패널을 일단 그리드 밖으로 (카드 위치가 올바르게 잡히도록)
+    if (panel.parentNode === grid) grid.after(panel);
+    panel.classList.remove('in-grid');
+
+    const isMobile = window.innerWidth <= 720;
+    if (!isMobile) return; // PC: 그리드 아래 그대로
+
+    // 2) 선택 카드와 같은 행(row)의 마지막 카드 찾기
+    const cards      = Array.from(grid.querySelectorAll('.card'));
+    const selTop     = selectedCardEl.getBoundingClientRect().top;
+    const sameRow    = cards.filter(c => Math.abs(c.getBoundingClientRect().top - selTop) < 10);
+    const lastInRow  = sameRow[sameRow.length - 1] || selectedCardEl;
+
+    // 3) 그 카드 바로 뒤에 패널 삽입
+    panel.classList.add('in-grid');
+    lastInRow.insertAdjacentElement('afterend', panel);
+  }
+
+  function resetDescPanel() {
+    const grid  = document.getElementById('cardsGrid');
+    const panel = document.getElementById('descPanel');
+    if (panel.parentNode === grid) grid.after(panel);
+    panel.classList.remove('in-grid', 'show');
+  }
+
+  /* ── 이벤트 핸들러 ────────────────────────────────── */
+  function selectSubType(id) {
+    // 이미 선택된 카드 다시 클릭 → 선택 해제
+    if (selectedSubType === id) {
+      selectedSubType = null;
+      selectedInstall = null;
+      document.querySelectorAll('.card').forEach(c => c.classList.remove('selected'));
+      document.querySelectorAll('.install-card').forEach(c => c.classList.remove('selected'));
+      document.getElementById('installSection').classList.remove('show');
+      document.getElementById('hint').style.display = '';
+      resetDescPanel();
+      updateNextBtn();
+      return;
+    }
+
+    selectedSubType = id;
+    selectedInstall = null;
+
+    document.querySelectorAll('.card').forEach(c => c.classList.remove('selected'));
+    const selectedCardEl = document.querySelector(`.card[data-id="${id}"]`);
+    selectedCardEl.classList.add('selected');
+
+    // 설명 패널 내용 업데이트
+    const item = (SUBTYPES[signType] || []).find(i => escId(i.id) === id);
+    if (item) {
+      document.getElementById('descPanelName').textContent = item.name;
+      document.getElementById('descPanelText').textContent = item.desc;
+      // 모바일에서 채널/스카시 선택 시 시공방식 바로가기 링크 표시
+      const needsInstall = signType === '전면간판' && NEEDS_INSTALL.includes(id);
+      const link = document.getElementById('descPanelLink');
+      link.style.display = (needsInstall && window.innerWidth <= 720) ? 'inline-block' : 'none';
+      const panel = document.getElementById('descPanel');
+      panel.classList.remove('show'); void panel.offsetWidth;
+      positionDescPanel(selectedCardEl);
+      panel.classList.add('show');
+    }
+
+    document.querySelectorAll('.install-card').forEach(c => c.classList.remove('selected'));
+
+    // 시공방식 섹션 표시 여부
+    const needsInstall = signType === '전면간판' && NEEDS_INSTALL.includes(id);
+    document.getElementById('installSection').classList.toggle('show', needsInstall);
+
+    document.getElementById('hint').style.display = 'none';
+    updateNextBtn();
+  }
+
+  function selectInstall(id) {
+    selectedInstall = id;
+    document.querySelectorAll('.install-card').forEach(c => c.classList.remove('selected'));
+    document.querySelector(`.install-card[data-id="${id}"]`).classList.add('selected');
+    updateNextBtn();
+  }
+
+  function updateNextBtn() {
+    const needsInstall = signType === '전면간판' && NEEDS_INSTALL.includes(selectedSubType);
+    const ready = selectedSubType && (!needsInstall || selectedInstall);
+    const btn = document.getElementById('btnNext');
+    if (ready) {
+      btn.classList.remove('show'); void btn.offsetWidth; btn.classList.add('show');
+      const suffix = selectedInstall ? ` · ${selectedInstall}` : '';
+      btn.textContent = `${selectedSubType}${suffix} 선택 완료 — 다음 단계로 →`;
+    } else {
+      btn.classList.remove('show');
+    }
+  }
+
+  function scrollToInstall() {
+    document.getElementById('installSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function goBack() {
+    window.location.href = 'step1-form.html';
+  }
+
+  function goNext() {
+    if (!selectedSubType) return;
+    localStorage.setItem('signSubType', selectedSubType);
+    if (selectedInstall) {
+      localStorage.setItem('installMethod', selectedInstall);
+    } else {
+      localStorage.removeItem('installMethod');
+    }
+    window.location.href = 'step3-size.html';
+  }
+
+  /* ── 유틸 ── */
+  function escId(str) { return str.replace(/[^a-zA-Z0-9가-힣_-]/g, '_'); }
+</script>
+</body>
+</html>

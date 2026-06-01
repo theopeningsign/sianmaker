@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 간판 시안 — 간판 종류 선택</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif;
+    background: #f0f2f5;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* ── 헤더 ── */
+  header {
+    width: 100%;
+    background: #fff;
+    border-bottom: 1px solid #e0e0e0;
+    padding: 16px 32px;
+    display: flex;
+    align-items: center;
+  }
+  .logo { font-size: 20px; font-weight: 800; color: #1a1a2e; letter-spacing: -0.5px; }
+  .logo span { color: #4f6ef7; }
+
+  /* ── 스텝바 ── */
+  .steps {
+    display: flex;
+    align-items: center;
+    margin: 28px auto 0;
+    width: min(560px, 90vw);
+  }
+  .step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    flex: 1;
+    position: relative;
+  }
+  .step:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    top: 15px;
+    left: 50%;
+    width: 100%;
+    height: 2px;
+    background: #e0e0e0;
+    z-index: 0;
+  }
+  .step.done::after { background: #4f6ef7; }
+  .step-num {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: #e0e0e0;
+    color: #999;
+    font-size: 13px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    position: relative; z-index: 1;
+    transition: all .2s;
+  }
+  .step.active .step-num { background: #4f6ef7; color: #fff; box-shadow: 0 0 0 4px #dde4ff; }
+  .step.done  .step-num { background: #4f6ef7; color: #fff; }
+  .step-label { font-size: 11px; color: #aaa; font-weight: 500; white-space: nowrap; }
+  .step.active .step-label { color: #4f6ef7; font-weight: 700; }
+  .step.done  .step-label { color: #4f6ef7; }
+
+  /* ── 메인 ── */
+  main {
+    width: min(920px, 96vw);
+    margin: 22px auto 60px;
+  }
+
+  .section-title { text-align: center; margin-bottom: 6px; }
+  .section-title h2 { font-size: 22px; font-weight: 800; color: #1a1a2e; letter-spacing: -0.5px; }
+  .section-title p  { font-size: 13px; color: #888; margin-top: 5px; }
+
+  /* ── 건물 이미지 + 오버레이 ── */
+  .building-wrap {
+    position: relative;
+    width: 100%;
+    margin: 20px auto 0;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 8px 40px rgba(0,0,0,.18);
+    user-select: none;
+    background: #2a2a3a;
+  }
+
+  .building-img {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+
+  /* 이미지 없을 때 안내 */
+  .img-placeholder {
+    display: none;
+    padding: 60px 20px;
+    text-align: center;
+    color: #aaa;
+    font-size: 14px;
+  }
+  .building-img.error ~ .img-placeholder { display: block; }
+
+  /* ── 클릭 존 공통 ── */
+  .zone {
+    position: absolute;
+    cursor: pointer;
+    border-radius: 6px;
+    border: 2.5px solid transparent;
+    transition: background .2s, border-color .2s, box-shadow .2s;
+  }
+
+  /* 기본: 배경·테두리만 투명 (라벨은 항상 표시) */
+  .zone { border-color: transparent; background: transparent; transition: background .2s, border-color .2s, box-shadow .2s; }
+  .zone:hover, .zone.lit { border-color: var(--bc); background: var(--hc); box-shadow: 0 0 0 3px var(--bc-a); }
+  .zone.selected         { border-color: var(--bc); background: var(--hc); box-shadow: 0 0 0 3px var(--bc-a); }
+
+  /* 존 라벨 태그 */
+  .zone-tag {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(10,10,20,.78);
+    backdrop-filter: blur(4px);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 20px;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  /* 실내간판 존 아래 플로팅 라벨 */
+  .indoor-float-tag {
+    position: absolute;
+    background: rgba(240,64,112,.85);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 10px;
+    cursor: pointer;
+    white-space: nowrap;
+    z-index: 20;
+  }
+
+  /* ── 이미지 하단 외부 라벨 ── */
+  .below-labels {
+    display: flex;
+    gap: 10px;
+    margin: 10px auto 0;
+    max-width: 920px;
+    padding: 0 4px;
+    flex-wrap: wrap;
+  }
+  .ext-label {
+    cursor: pointer;
+    border: 2px solid var(--bc);
+    background: var(--hc);
+    color: #1a1a2e;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 6px 16px;
+    border-radius: 20px;
+    transition: opacity .15s, box-shadow .15s;
+    opacity: 0.65;
+    user-select: none;
+  }
+  .ext-label:hover  { opacity: 1; box-shadow: 0 0 0 3px var(--bc-a); }
+  .ext-label.selected { opacity: 1; box-shadow: 0 0 0 3px var(--bc-a); background: var(--hc2); }
+
+  /* ── 선택 정보 박스 ── */
+  .info-box {
+    margin: 20px auto 0;
+    max-width: 920px;
+    background: #fff;
+    border: 2px solid #4f6ef7;
+    border-radius: 14px;
+    padding: 18px 22px;
+    display: none;
+    align-items: flex-start;
+    gap: 16px;
+    animation: fadeUp .25s ease;
+  }
+  .info-box.show { display: flex; }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .info-text h3 { font-size: 16px; font-weight: 800; color: #1a1a2e; margin-bottom: 4px; }
+  .info-text p  { font-size: 13px; color: #666; line-height: 1.6; }
+
+  /* ── 다음 버튼 ── */
+  .btn-next {
+    display: none;
+    margin: 18px auto 0;
+    width: min(320px, 80vw);
+    padding: 15px;
+    background: #4f6ef7;
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: -0.3px;
+    transition: background .15s, transform .1s;
+    animation: fadeUp .25s ease;
+  }
+  .btn-next.show { display: block; }
+  .btn-next:hover  { background: #3a57e8; }
+  .btn-next:active { transform: scale(.98); }
+
+  /* ── 힌트 ── */
+  .hint {
+    text-align: center;
+    font-size: 13px;
+    color: #aaa;
+    margin-top: 14px;
+    animation: pulse 2.5s ease infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
+
+  /* ── 모바일 ── */
+  @media (max-width: 600px) {
+    .zone-tag { font-size: 10px; padding: 2px 8px; }
+    .section-title h2 { font-size: 18px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">사인<span>메이커</span> AI</div>
+</header>
+
+<div class="steps">
+  <div class="step active">
+    <div class="step-num">1</div>
+    <div class="step-label">간판 종류</div>
+  </div>
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-label">간판 상세 종류</div>
+  </div>
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-label">사이즈 · 문구</div>
+  </div>
+  <div class="step">
+    <div class="step-num">4</div>
+    <div class="step-label">AI 시안 생성</div>
+  </div>
+</div>
+
+<main>
+  <div class="section-title">
+    <h2>어떤 간판을 원하세요?</h2>
+    <p>이미지에서 원하는 간판 위치를 클릭하세요</p>
+  </div>
+
+  <!-- ── 건물 이미지 + 클릭 존 ── -->
+  <div class="building-wrap">
+    <img src="cafe-illustration.jpg" class="building-img" alt="간판 종류 선택 일러스트"
+         onerror="this.style.display='none';document.getElementById('imgPlaceholder').style.display='block'">
+    <div id="imgPlaceholder" class="img-placeholder">
+      📷 이미지 파일을 <code>cafe-illustration.jpg</code> 이름으로 같은 폴더에 넣어주세요.
+    </div>
+
+    <!-- 전면간판: 등각 투영 평행사변형 (좌표 실측) -->
+    <!-- TL(16.4,13.2) TR(67,45.3) BR(67,60.3) BL(16.4,28.7) -->
+    <!-- div bbox: left16.4 top13.2 w50.6 h47.1 -->
+    <!-- polygon: TL(0%,0%) TR(100%,68%) BR(100%,100%) BL(0%,33%) -->
+    <div class="zone" id="zone-main" data-type="전면간판"
+         style="top:13.2%; left:16.4%; width:50.6%; height:47.1%;
+                clip-path: polygon(0% 0%, 100% 68%, 100% 100%, 0% 33%);
+                --hc:rgba(79,110,247,.22); --bc:#4f6ef7; --bc-a:rgba(79,110,247,.35)">
+      <span class="zone-tag" style="top:65%; right:4px; left:auto; transform:none;">전면간판</span>
+    </div>
+
+    <!-- 어닝간판: 6점 실측 좌표 -->
+    <!-- (19.4,31.5)(14.5,38.5)(14.5,42.5)(58.8,69.4)(58.8,66)(63.4,58.7) -->
+    <div class="zone" id="zone-awning" data-type="어닝간판"
+         style="top:31.5%; left:14.5%; width:48.9%; height:37.9%;
+                clip-path: polygon(10% 0%, 0% 18.5%, 0% 29%, 91% 100%, 91% 91%, 100% 72%);
+                --hc:rgba(255,153,0,.22); --bc:#ff9900; --bc-a:rgba(255,153,0,.35)">
+      <span class="zone-tag" style="top:28%; left:22%; transform:none;">어닝간판</span>
+    </div>
+
+    <!-- 돌출간판: 원형, top 7% 위로 확장 -->
+    <div class="zone" id="zone-projecting" data-type="돌출간판"
+         style="top:13%; left:54%; width:25%; height:27%;
+                border-radius: 50%;
+                --hc:rgba(0,201,160,.22); --bc:#00c9a0; --bc-a:rgba(0,201,160,.35)">
+      <span class="zone-tag" style="top:auto; bottom:6px; left:50%; transform:translateX(-50%);">돌출간판</span>
+    </div>
+
+    <!-- 지주형간판: 좌측 세로 사인보드 -->
+    <div class="zone" id="zone-pole" data-type="지주형간판"
+         style="top:45%; left:5%; width:10%; height:38%;
+                --hc:rgba(247,201,72,.25); --bc:#f7c948; --bc-a:rgba(247,201,72,.4)">
+      <span class="zone-tag" style="top:auto; bottom:6px; left:50%; transform:translateX(-50%);">지주형간판</span>
+    </div>
+
+    <!-- 실내간판 A: 좌측 쇼윈도 내부 -->
+    <div class="zone zone-indoor" data-type="실내간판"
+         style="top:49.3%; left:24.1%; width:3.9%; height:8.7%;
+                clip-path: polygon(0% 13%, 0% 100%, 100% 69%, 100% 17%, 44% 0%);
+                --hc:rgba(240,64,112,.22); --bc:#f04070; --bc-a:rgba(240,64,112,.35)">
+    </div>
+    <!-- 실내간판 A 하단 라벨 (clip-path 밖에 별도 배치) -->
+    <span class="indoor-float-tag" data-for="indoor-a"
+          style="top:58.5%; left:26%;
+                 transform:translateX(-50%);">실내간판</span>
+
+    <!-- 실내간판 B: OPEN 사인 -->
+    <div class="zone zone-indoor" data-type="실내간판"
+         style="top:64.7%; left:49.5%; width:5.9%; height:10.2%;
+                clip-path: polygon(0% 0%, 0% 69%, 100% 100%, 100% 32%);
+                --hc:rgba(240,64,112,.22); --bc:#f04070; --bc-a:rgba(240,64,112,.35)">
+    </div>
+    <!-- 실내간판 B 하단 라벨 -->
+    <span class="indoor-float-tag" data-for="indoor-b"
+          style="top:75.5%; left:52.4%;
+                 transform:translateX(-50%);">실내간판</span>
+
+  </div>
+
+  <!-- 이미지 하단 라벨 (전체 5종) -->
+  <div class="below-labels">
+    <div class="ext-label" data-type="전면간판"
+         style="--bc:#4f6ef7; --hc:rgba(79,110,247,.15); --hc2:rgba(79,110,247,.28); --bc-a:rgba(79,110,247,.35)">
+      전면간판
+    </div>
+    <div class="ext-label" data-type="어닝간판"
+         style="--bc:#ff9900; --hc:rgba(255,153,0,.15); --hc2:rgba(255,153,0,.28); --bc-a:rgba(255,153,0,.35)">
+      어닝간판
+    </div>
+    <div class="ext-label" data-type="돌출간판"
+         style="--bc:#00c9a0; --hc:rgba(0,201,160,.15); --hc2:rgba(0,201,160,.28); --bc-a:rgba(0,201,160,.35)">
+      돌출간판
+    </div>
+    <div class="ext-label" data-type="지주형간판"
+         style="--bc:#d4a800; --hc:rgba(212,168,0,.15); --hc2:rgba(212,168,0,.28); --bc-a:rgba(212,168,0,.35)">
+      지주형간판
+    </div>
+    <div class="ext-label" data-type="실내간판"
+         style="--bc:#f04070; --hc:rgba(240,64,112,.15); --hc2:rgba(240,64,112,.28); --bc-a:rgba(240,64,112,.35)">
+      실내간판
+    </div>
+  </div>
+
+  <!-- 힌트 -->
+  <div class="hint" id="hint">👆 이미지에서 원하는 간판 위치를 클릭하세요</div>
+
+  <!-- 선택 정보 박스 -->
+  <div class="info-box" id="infoBox">
+    <div class="info-text">
+      <h3 id="infoTitle"></h3>
+      <p  id="infoDesc"></p>
+    </div>
+  </div>
+
+  <!-- 다음 버튼 -->
+  <button class="btn-next" id="btnNext" onclick="goNext()">다음 단계로 →</button>
+</main>
+
+<script>
+  const INFO = {
+    '전면간판': {
+      icon: '🏢',
+      title: '전면간판',
+      desc: '건물 정면 외벽에 설치하는 메인 간판입니다. 가장 넓은 면적으로 브랜드를 강력하게 노출할 수 있어요. 채널사인, LED 백라이트, 현수막 등 다양한 방식으로 제작 가능합니다.',
+    },
+    '어닝간판': {
+      icon: '☂️',
+      title: '어닝간판',
+      desc: '건물 1층 처마에 설치하는 천막형 간판입니다. 비·햇빛을 막아주는 기능성과 함께 브랜드 색상으로 눈에 띄는 시인성을 동시에 갖출 수 있어요.',
+    },
+    '돌출간판': {
+      icon: '📌',
+      title: '돌출간판',
+      desc: '건물 측면 외벽에서 직각으로 돌출되는 간판입니다. 도로 방향에서 걷는 보행자에게 측면으로 브랜드를 노출하기 최적입니다.',
+    },
+    '지주형간판': {
+      icon: '🚩',
+      title: '지주형간판',
+      desc: '건물 앞 지면에 독립 기둥으로 세우는 간판입니다. 주차장이나 넓은 진입로가 있는 상업시설에서 멀리서도 브랜드를 알릴 수 있어요.',
+    },
+    '실내간판': {
+      icon: '🪟',
+      title: '실내간판',
+      desc: '쇼윈도 유리, 카운터 상단, 벽면 등 실내에 설치하는 간판입니다. 카페·미용실·병원 등 내부 분위기와 브랜드를 함께 연출할 때 활용합니다.',
+    },
+  };
+
+  let selected = null;
+
+  function selectType(type) {
+    selected = type;
+    // 존 선택
+    document.querySelectorAll('.zone').forEach(z => z.classList.remove('selected'));
+    document.querySelectorAll(`.zone[data-type="${type}"]`).forEach(z => z.classList.add('selected'));
+    // 외부 라벨 선택
+    document.querySelectorAll('.ext-label').forEach(l => l.classList.remove('selected'));
+    document.querySelectorAll(`.ext-label[data-type="${type}"]`).forEach(l => l.classList.add('selected'));
+    // 힌트 숨기기
+    document.getElementById('hint').style.display = 'none';
+    // 정보 박스
+    const info = INFO[type];
+    document.getElementById('infoTitle').textContent = info.title;
+    document.getElementById('infoDesc').textContent  = info.desc;
+    const box = document.getElementById('infoBox');
+    box.classList.remove('show'); void box.offsetWidth; box.classList.add('show');
+    // 다음 버튼
+    const btn = document.getElementById('btnNext');
+    btn.classList.remove('show'); void btn.offsetWidth; btn.classList.add('show');
+    btn.textContent = `${info.title} 선택 완료 — 다음 단계로 →`;
+  }
+
+  // 외부 라벨 클릭
+  document.querySelectorAll('.ext-label').forEach(label => {
+    label.addEventListener('click', () => selectType(label.dataset.type));
+  });
+
+  // 실내간판 플로팅 라벨 클릭 + 호버 시 존 하이라이트
+  document.querySelectorAll('.indoor-float-tag').forEach(tag => {
+    tag.addEventListener('click', () => selectType('실내간판'));
+    tag.addEventListener('mouseenter', () => {
+      document.querySelectorAll('.zone-indoor').forEach(z => z.classList.add('lit'));
+    });
+    tag.addEventListener('mouseleave', () => {
+      document.querySelectorAll('.zone-indoor').forEach(z => z.classList.remove('lit'));
+    });
+  });
+
+  document.querySelectorAll('.zone').forEach(zone => {
+    zone.addEventListener('click', () => {
+      const type = zone.dataset.type;
+      selectType(type);
+
+      // selectType이 모든 처리 담당
+    });
+  });
+
+  function goNext() {
+    if (!selected) return;
+    localStorage.setItem('signType', selected);
+    window.location.href = 'step2-material.html';
+  }
+</script>
+</body>
+</html>

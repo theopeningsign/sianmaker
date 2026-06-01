@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 간판 시안 — 사이즈 설정</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif;
+    background: #f0f2f5;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* ── 헤더 ── */
+  header {
+    width: 100%;
+    background: #fff;
+    border-bottom: 1px solid #e0e0e0;
+    padding: 16px 32px;
+    display: flex;
+    align-items: center;
+  }
+  .logo { font-size: 20px; font-weight: 800; color: #1a1a2e; letter-spacing: -0.5px; }
+  .logo span { color: #4f6ef7; }
+
+  /* ── 스텝바 ── */
+  .steps {
+    display: flex;
+    align-items: center;
+    margin: 28px auto 0;
+    width: min(560px, 90vw);
+  }
+  .step {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 5px; flex: 1; position: relative;
+  }
+  .step:not(:last-child)::after {
+    content: ''; position: absolute; top: 15px; left: 50%;
+    width: 100%; height: 2px; background: #e0e0e0; z-index: 0;
+  }
+  .step.done::after  { background: #4f6ef7; }
+  .step-num {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: #e0e0e0; color: #999;
+    font-size: 13px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    position: relative; z-index: 1; transition: all .2s;
+  }
+  .step.active .step-num { background: #4f6ef7; color: #fff; box-shadow: 0 0 0 4px #dde4ff; }
+  .step.done  .step-num  { background: #4f6ef7; color: #fff; }
+  .step-label { font-size: 11px; color: #aaa; font-weight: 500; white-space: nowrap; }
+  .step.active .step-label { color: #4f6ef7; font-weight: 700; }
+  .step.done  .step-label  { color: #4f6ef7; }
+  .step.done  { cursor: pointer; }
+  .step.done:hover .step-num   { background: #3a57e8; }
+  .step.done:hover .step-label { color: #3a57e8; }
+
+  /* ── 메인 ── */
+  main {
+    width: min(720px, 96vw);
+    margin: 22px auto 60px;
+  }
+
+  .section-title { text-align: center; margin-bottom: 24px; }
+  .section-title h2 { font-size: 22px; font-weight: 800; color: #1a1a2e; letter-spacing: -0.5px; }
+  .section-title p  { font-size: 13px; color: #888; margin-top: 5px; }
+
+  /* 뒤로가기 */
+  .back-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: none; border: none; color: #888;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    padding: 0; margin-bottom: 14px; font-family: inherit;
+    transition: color .15s;
+  }
+  .back-btn:hover { color: #1a1a2e; }
+  .back-btn::before { content: '←'; font-size: 15px; }
+
+  /* ── 탭 ── */
+  .tabs {
+    display: flex;
+    background: #e8eaee;
+    border-radius: 12px;
+    padding: 4px;
+    margin-bottom: 24px;
+    gap: 4px;
+  }
+  .tab {
+    flex: 1;
+    padding: 10px;
+    border: none;
+    background: none;
+    border-radius: 9px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #888;
+    cursor: pointer;
+    transition: background .2s, color .2s, box-shadow .2s;
+    font-family: inherit;
+    letter-spacing: -0.3px;
+  }
+  .tab.active {
+    background: #fff;
+    color: #1a1a2e;
+    box-shadow: 0 2px 8px rgba(0,0,0,.1);
+  }
+
+  /* ── 탭 패널 ── */
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ── Tab 1: 직접 입력 ── */
+  .size-form {
+    background: #fff;
+    border-radius: 16px;
+    padding: 28px 24px;
+    box-shadow: 0 2px 12px rgba(0,0,0,.06);
+  }
+  .size-row {
+    display: flex;
+    gap: 16px;
+    align-items: flex-end;
+  }
+  .size-field {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .size-field label {
+    font-size: 13px;
+    font-weight: 700;
+    color: #444;
+  }
+  .size-input-wrap {
+    display: flex;
+    align-items: center;
+    border: 2px solid #e0e0e0;
+    border-radius: 10px;
+    overflow: hidden;
+    transition: border-color .2s;
+  }
+  .size-input-wrap:focus-within { border-color: #4f6ef7; }
+  .size-input-wrap input {
+    flex: 1;
+    border: none;
+    outline: none;
+    padding: 12px 14px;
+    font-size: 18px;
+    font-weight: 700;
+    color: #1a1a2e;
+    font-family: inherit;
+    width: 0;
+  }
+  .size-unit {
+    padding: 0 14px;
+    font-size: 13px;
+    color: #aaa;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .size-x {
+    font-size: 22px;
+    color: #ccc;
+    font-weight: 300;
+    margin-bottom: 12px;
+    flex-shrink: 0;
+  }
+  .size-preview {
+    margin-top: 20px;
+    text-align: center;
+    min-height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .size-ratio-box {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .size-ratio-box.show { display: flex; }
+  .ratio-visual {
+    background: #1c1c2e;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255,255,255,.4);
+    font-size: 12px;
+    font-weight: 600;
+    max-width: 100%;
+    transition: width .3s, height .3s;
+  }
+  .ratio-text {
+    font-size: 13px;
+    color: #888;
+    font-weight: 600;
+  }
+
+  /* ── Tab 2: 건물 사진 ── */
+  .photo-tab {
+    background: #fff;
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 2px 12px rgba(0,0,0,.06);
+  }
+
+  /* 업로드 영역 */
+  .upload-area {
+    border: 2px dashed #d0d4dd;
+    border-radius: 12px;
+    padding: 40px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+  }
+  .upload-area:hover { border-color: #4f6ef7; background: #f5f7ff; }
+  .upload-icon { font-size: 36px; margin-bottom: 10px; }
+  .upload-title { font-size: 15px; font-weight: 700; color: #1a1a2e; margin-bottom: 5px; }
+  .upload-sub   { font-size: 12px; color: #aaa; }
+  #photoFileInput { display: none; }
+
+  /* 캔버스 영역 */
+  .canvas-section { display: none; }
+  .canvas-section.show { display: block; }
+
+  .canvas-toolbar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .tool-btn {
+    padding: 7px 14px;
+    border-radius: 8px;
+    border: 2px solid #e0e0e0;
+    background: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    color: #555;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all .15s;
+  }
+  .tool-btn:hover   { border-color: #4f6ef7; color: #4f6ef7; }
+  .tool-btn.active  { border-color: #4f6ef7; background: #4f6ef7; color: #fff; }
+  .tool-btn.danger  { border-color: #e04060; color: #e04060; }
+  .tool-btn.danger:hover { background: #e04060; color: #fff; }
+  .tool-hint {
+    font-size: 12px;
+    color: #aaa;
+    margin-left: auto;
+  }
+
+  .canvas-wrap {
+    position: relative;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #1c1c2e;
+    line-height: 0;
+    cursor: crosshair;
+  }
+  .canvas-wrap canvas { display: block; max-width: 100%; }
+
+  /* 크롭 확정 버튼 */
+  .crop-confirm-bar {
+    display: none;
+    margin-top: 10px;
+    gap: 8px;
+  }
+  .crop-confirm-bar.show { display: flex; }
+
+  /* 박스 결과 */
+  .box-result {
+    display: none;
+    margin-top: 14px;
+    padding: 14px 16px;
+    background: #f5f7ff;
+    border: 2px solid #4f6ef7;
+    border-radius: 10px;
+    font-size: 13px;
+    color: #1a1a2e;
+    font-weight: 600;
+  }
+  .box-result.show { display: block; }
+  .box-result span { color: #4f6ef7; }
+
+  /* ── 힌트 ── */
+  .hint {
+    text-align: center;
+    font-size: 13px;
+    color: #aaa;
+    margin-top: 20px;
+    animation: pulse 2.5s ease infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
+
+  /* ── 다음 버튼 ── */
+  .btn-next {
+    display: none;
+    margin: 24px auto 0;
+    width: min(340px, 86vw);
+    padding: 15px;
+    background: #4f6ef7;
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: -0.3px;
+    transition: background .15s, transform .1s;
+    animation: fadeUp .25s ease;
+  }
+  .btn-next.show { display: block; }
+  .btn-next:hover  { background: #3a57e8; }
+  .btn-next:active { transform: scale(.98); }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* 모바일 플로팅 버튼 */
+  @media (max-width: 720px) {
+    .btn-next.show {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      width: 100%; margin: 0;
+      border-radius: 0;
+      border-top: 1px solid rgba(255,255,255,.15);
+      padding: 16px; z-index: 200;
+    }
+    main { padding-bottom: 70px; }
+  }
+
+  @media (max-width: 480px) {
+    .size-row { flex-direction: column; gap: 12px; }
+    .size-x { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">사인<span>메이커</span> AI</div>
+</header>
+
+<div class="steps">
+  <div class="step done" onclick="goTo('step1-form.html')">
+    <div class="step-num">1</div>
+    <div class="step-label">간판 종류</div>
+  </div>
+  <div class="step done" onclick="goTo('step2-material.html')">
+    <div class="step-num">2</div>
+    <div class="step-label">간판 상세 종류</div>
+  </div>
+  <div class="step active">
+    <div class="step-num">3</div>
+    <div class="step-label">사이즈 · 문구</div>
+  </div>
+  <div class="step">
+    <div class="step-num">4</div>
+    <div class="step-label">AI 시안 생성</div>
+  </div>
+</div>
+
+<main>
+  <div class="section-title">
+    <h2>간판 사이즈를 알려주세요</h2>
+    <p>사이즈를 직접 입력하거나, 건물 사진으로 영역을 지정할 수 있어요</p>
+  </div>
+
+  <button class="back-btn" onclick="goTo('step2-material.html')">이전 단계</button>
+
+  <!-- 탭 -->
+  <div class="tabs">
+    <button class="tab active" id="tab1Btn" onclick="switchTab(1)">사이즈를 알아요</button>
+    <button class="tab"        id="tab2Btn" onclick="switchTab(2)">잘 모르겠어요</button>
+  </div>
+
+  <!-- ── Tab 1: 직접 입력 ── -->
+  <div class="tab-panel active" id="tab1">
+    <div class="size-form">
+      <div class="size-row">
+        <div class="size-field">
+          <label>가로</label>
+          <div class="size-input-wrap">
+            <input type="number" id="inputW" placeholder="0" min="1" oninput="onSizeInput()">
+            <span class="size-unit">cm</span>
+          </div>
+        </div>
+        <div class="size-x">×</div>
+        <div class="size-field">
+          <label>세로</label>
+          <div class="size-input-wrap">
+            <input type="number" id="inputH" placeholder="0" min="1" oninput="onSizeInput()">
+            <span class="size-unit">cm</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 비율 미리보기 -->
+      <div class="size-preview">
+        <div class="size-ratio-box" id="ratioBox">
+          <div class="ratio-visual" id="ratioVisual">비율 미리보기</div>
+          <div class="ratio-text" id="ratioText"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Tab 2: 건물 사진 ── -->
+  <div class="tab-panel" id="tab2">
+    <div class="photo-tab">
+
+      <!-- 업로드 -->
+      <div class="upload-area" id="uploadArea" onclick="document.getElementById('photoFileInput').click()">
+        <div class="upload-icon">🏢</div>
+        <div class="upload-title">건물 사진을 업로드하세요</div>
+        <div class="upload-sub">클릭하거나 사진을 드래그해서 올려주세요</div>
+      </div>
+      <input type="file" id="photoFileInput" accept="image/*" onchange="onPhotoUpload(event)">
+
+      <!-- 캔버스 작업 영역 -->
+      <div class="canvas-section" id="canvasSection">
+        <div class="canvas-toolbar">
+          <button class="tool-btn" id="btnCropMode" onclick="enterCropMode()">건물 영역 선택</button>
+          <button class="tool-btn active" id="btnBoxMode" onclick="enterBoxMode()">간판 영역 지정</button>
+          <button class="tool-btn danger" onclick="resetPhoto()">사진 다시 선택</button>
+          <span class="tool-hint" id="toolHint">드래그해서 간판 위치를 지정하세요</span>
+        </div>
+
+        <div class="canvas-wrap" id="canvasWrap">
+          <canvas id="photoCanvas"></canvas>
+        </div>
+
+        <!-- 크롭 확정/취소 -->
+        <div class="crop-confirm-bar" id="cropConfirmBar">
+          <button class="tool-btn active" onclick="confirmCrop()">이 영역으로 확정</button>
+          <button class="tool-btn" onclick="cancelCrop()">취소</button>
+        </div>
+
+        <!-- 지정 결과 -->
+        <div class="box-result" id="boxResult">
+          간판 영역 비율: <span id="boxRatioText"></span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="hint" id="hint">사이즈를 입력하거나 건물 사진으로 영역을 지정하세요</div>
+  <button class="btn-next" id="btnNext" onclick="goNext()">다음 단계로 →</button>
+</main>
+
+<script>
+  /* ── 저장된 선택 표시 ── */
+  const signType    = localStorage.getItem('signType')    || '';
+  const signSubType = localStorage.getItem('signSubType') || '';
+  const installMethod = localStorage.getItem('installMethod') || '';
+
+  /* ── 상태 ── */
+  let activeTab   = 1;
+  let sizeW = 0, sizeH = 0;          // Tab1
+  let photoDataURL = null;           // 원본 사진
+  let croppedDataURL = null;         // 크롭 후 사진
+  let signBoxRatio = null;           // 간판 영역 비율 (w/h)
+
+  // 캔버스
+  let canvas, ctx;
+  let imgEl = null;                  // 현재 표시 중인 이미지
+  let imgDrawX, imgDrawY, imgDrawW, imgDrawH; // 이미지 실제 렌더 영역
+
+  // 인터랙션 모드: 'crop' | 'box'
+  let mode = 'box';
+  let isDragging = false;
+  let dragStart = { x: 0, y: 0 };
+  let dragRect  = null;              // { x, y, w, h } in canvas px
+  let cropRect  = null;              // 확정된 크롭 영역 (원본 이미지 좌표)
+
+  /* ── 탭 전환 ── */
+  function switchTab(n) {
+    activeTab = n;
+    document.getElementById('tab1Btn').classList.toggle('active', n === 1);
+    document.getElementById('tab2Btn').classList.toggle('active', n === 2);
+    document.getElementById('tab1').classList.toggle('active', n === 1);
+    document.getElementById('tab2').classList.toggle('active', n === 2);
+    updateNextBtn();
+  }
+
+  /* ── Tab 1: 직접 입력 ── */
+  function onSizeInput() {
+    sizeW = parseFloat(document.getElementById('inputW').value) || 0;
+    sizeH = parseFloat(document.getElementById('inputH').value) || 0;
+
+    const box  = document.getElementById('ratioBox');
+    const vis  = document.getElementById('ratioVisual');
+    const txt  = document.getElementById('ratioText');
+
+    if (sizeW > 0 && sizeH > 0) {
+      box.classList.add('show');
+      // 비율 시각화 (최대 300×200 내에서)
+      const MAX_W = 300, MAX_H = 200;
+      let dw = sizeW, dh = sizeH;
+      const scale = Math.min(MAX_W / dw, MAX_H / dh);
+      const vw = Math.round(dw * scale);
+      const vh = Math.round(dh * scale);
+      vis.style.width  = vw + 'px';
+      vis.style.height = vh + 'px';
+      vis.style.fontSize = Math.max(10, Math.min(14, vh * 0.2)) + 'px';
+      vis.textContent  = `${sizeW} × ${sizeH} cm`;
+      txt.textContent  = `비율 ${sizeW} : ${sizeH}`;
+    } else {
+      box.classList.remove('show');
+    }
+    updateNextBtn();
+  }
+
+  /* ── Tab 2: 사진 업로드 ── */
+  function onPhotoUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      photoDataURL = ev.target.result;
+      croppedDataURL = null;
+      cropRect = null;
+      signBoxRatio = null;
+      initCanvas(photoDataURL);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // 드래그 앤 드롭
+  const uploadArea = document.getElementById('uploadArea');
+  uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.style.borderColor = '#4f6ef7'; });
+  uploadArea.addEventListener('dragleave', () => { uploadArea.style.borderColor = ''; });
+  uploadArea.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadArea.style.borderColor = '';
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        photoDataURL = ev.target.result;
+        croppedDataURL = null;
+        cropRect = null;
+        signBoxRatio = null;
+        initCanvas(photoDataURL);
+      };
+      reader.readAsDataURL(file);
+    }
+  });
+
+  function initCanvas(src) {
+    document.getElementById('uploadArea').style.display = 'none';
+    document.getElementById('canvasSection').classList.add('show');
+    document.getElementById('boxResult').classList.remove('show');
+    dragRect = null;
+
+    imgEl = new Image();
+    imgEl.onload = () => {
+      canvas = document.getElementById('photoCanvas');
+      ctx = canvas.getContext('2d');
+
+      const wrap = document.getElementById('canvasWrap');
+      const maxW = wrap.clientWidth || 672;
+      const scale = Math.min(maxW / imgEl.naturalWidth, 480 / imgEl.naturalHeight, 1);
+      canvas.width  = Math.round(imgEl.naturalWidth  * scale);
+      canvas.height = Math.round(imgEl.naturalHeight * scale);
+
+      imgDrawX = 0; imgDrawY = 0;
+      imgDrawW = canvas.width; imgDrawH = canvas.height;
+
+      drawCanvas();
+      enterBoxMode();
+    };
+    imgEl.src = src;
+  }
+
+  function drawCanvas() {
+    if (!ctx || !imgEl) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(imgEl, imgDrawX, imgDrawY, imgDrawW, imgDrawH);
+
+    if (dragRect) {
+      const color = mode === 'crop' ? '#4f6ef7' : '#f04070';
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = 2.5;
+      ctx.setLineDash(mode === 'crop' ? [6, 3] : []);
+      ctx.strokeRect(dragRect.x, dragRect.y, dragRect.w, dragRect.h);
+
+      if (mode === 'crop') {
+        // 크롭 외부 어둡게
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        ctx.fillRect(0, 0, canvas.width, dragRect.y);
+        ctx.fillRect(0, dragRect.y + dragRect.h, canvas.width, canvas.height - dragRect.y - dragRect.h);
+        ctx.fillRect(0, dragRect.y, dragRect.x, dragRect.h);
+        ctx.fillRect(dragRect.x + dragRect.w, dragRect.y, canvas.width - dragRect.x - dragRect.w, dragRect.h);
+      } else {
+        // 간판 박스 라벨
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(240,64,112,.85)';
+        const lw = Math.abs(dragRect.w), lh = Math.abs(dragRect.h);
+        const lx = dragRect.w >= 0 ? dragRect.x : dragRect.x + dragRect.w;
+        const ly = dragRect.y + (dragRect.h >= 0 ? 0 : dragRect.h);
+        const ratio = (lw / lh).toFixed(2);
+        const label = `${Math.round(lw)} × ${Math.round(lh)}  (비율 ${ratio})`;
+        ctx.font = 'bold 12px sans-serif';
+        const tw = ctx.measureText(label).width;
+        ctx.fillRect(lx, ly - 22, tw + 12, 22);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(label, lx + 6, ly - 6);
+      }
+    }
+  }
+
+  /* ── 모드 전환 ── */
+  function enterCropMode() {
+    mode = 'crop';
+    dragRect = null;
+    document.getElementById('btnCropMode').classList.add('active');
+    document.getElementById('btnBoxMode').classList.remove('active');
+    document.getElementById('toolHint').textContent = '드래그해서 건물이 보이는 영역을 선택하세요';
+    document.getElementById('cropConfirmBar').classList.remove('show');
+    document.getElementById('boxResult').classList.remove('show');
+    signBoxRatio = null;
+    drawCanvas();
+    updateNextBtn();
+  }
+
+  function enterBoxMode() {
+    mode = 'box';
+    dragRect = null;
+    document.getElementById('btnBoxMode').classList.add('active');
+    document.getElementById('btnCropMode').classList.remove('active');
+    document.getElementById('toolHint').textContent = '드래그해서 간판 위치를 지정하세요';
+    document.getElementById('cropConfirmBar').classList.remove('show');
+    drawCanvas();
+  }
+
+  /* ── 크롭 확정 ── */
+  function confirmCrop() {
+    if (!dragRect) return;
+    const lx = dragRect.w >= 0 ? dragRect.x : dragRect.x + dragRect.w;
+    const ly = dragRect.h >= 0 ? dragRect.y : dragRect.y + dragRect.h;
+    const lw = Math.abs(dragRect.w);
+    const lh = Math.abs(dragRect.h);
+    if (lw < 10 || lh < 10) return;
+
+    // 크롭 이미지 추출
+    const tmp = document.createElement('canvas');
+    tmp.width = lw; tmp.height = lh;
+    tmp.getContext('2d').drawImage(canvas, lx, ly, lw, lh, 0, 0, lw, lh);
+    croppedDataURL = tmp.toDataURL('image/jpeg', 0.92);
+
+    // 캔버스 재초기화
+    dragRect = null;
+    signBoxRatio = null;
+    document.getElementById('boxResult').classList.remove('show');
+    document.getElementById('cropConfirmBar').classList.remove('show');
+    initCanvas(croppedDataURL);
+  }
+
+  function cancelCrop() {
+    dragRect = null;
+    document.getElementById('cropConfirmBar').classList.remove('show');
+    enterBoxMode();
+  }
+
+  /* ── 사진 리셋 ── */
+  function resetPhoto() {
+    photoDataURL = croppedDataURL = null;
+    cropRect = signBoxRatio = null;
+    dragRect = null;
+    document.getElementById('uploadArea').style.display = '';
+    document.getElementById('canvasSection').classList.remove('show');
+    document.getElementById('photoFileInput').value = '';
+    document.getElementById('boxResult').classList.remove('show');
+    updateNextBtn();
+  }
+
+  /* ── 마우스 이벤트 ── */
+  function getCanvasPos(e) {
+    const r = canvas.getBoundingClientRect();
+    const scaleX = canvas.width  / r.width;
+    const scaleY = canvas.height / r.height;
+    const src = e.touches ? e.touches[0] : e;
+    return {
+      x: (src.clientX - r.left) * scaleX,
+      y: (src.clientY - r.top)  * scaleY,
+    };
+  }
+
+  function onPointerDown(e) {
+    e.preventDefault();
+    isDragging = true;
+    dragStart = getCanvasPos(e);
+    dragRect  = { x: dragStart.x, y: dragStart.y, w: 0, h: 0 };
+    if (mode === 'crop') {
+      document.getElementById('cropConfirmBar').classList.remove('show');
+    } else {
+      document.getElementById('boxResult').classList.remove('show');
+      signBoxRatio = null;
+      updateNextBtn();
+    }
+  }
+
+  function onPointerMove(e) {
+    if (!isDragging) return;
+    e.preventDefault();
+    const pos = getCanvasPos(e);
+    dragRect.w = pos.x - dragStart.x;
+    dragRect.h = pos.y - dragStart.y;
+    drawCanvas();
+  }
+
+  function onPointerUp(e) {
+    if (!isDragging) return;
+    isDragging = false;
+    const lw = Math.abs(dragRect.w);
+    const lh = Math.abs(dragRect.h);
+
+    if (lw < 10 || lh < 10) {
+      dragRect = null;
+      drawCanvas();
+      return;
+    }
+
+    if (mode === 'crop') {
+      document.getElementById('cropConfirmBar').classList.add('show');
+    } else {
+      // 간판 영역 확정
+      signBoxRatio = lw / lh;
+      const ratioStr = `${(signBoxRatio).toFixed(2)} (${Math.round(lw)} : ${Math.round(lh)})`;
+      document.getElementById('boxRatioText').textContent = ratioStr;
+      document.getElementById('boxResult').classList.add('show');
+      updateNextBtn();
+    }
+    drawCanvas();
+  }
+
+  // 이벤트 바인딩 (캔버스가 생성된 후)
+  document.getElementById('canvasWrap').addEventListener('mousedown',  onPointerDown);
+  document.getElementById('canvasWrap').addEventListener('mousemove',  onPointerMove);
+  document.getElementById('canvasWrap').addEventListener('mouseup',    onPointerUp);
+  document.getElementById('canvasWrap').addEventListener('mouseleave', onPointerUp);
+  document.getElementById('canvasWrap').addEventListener('touchstart', onPointerDown, { passive: false });
+  document.getElementById('canvasWrap').addEventListener('touchmove',  onPointerMove, { passive: false });
+  document.getElementById('canvasWrap').addEventListener('touchend',   onPointerUp);
+
+  /* ── 다음 버튼 ── */
+  function updateNextBtn() {
+    const btn = document.getElementById('btnNext');
+    let ready = false;
+    let label = '';
+
+    if (activeTab === 1) {
+      ready = sizeW > 0 && sizeH > 0;
+      if (ready) label = `${sizeW} × ${sizeH} cm — 다음 단계로 →`;
+    } else {
+      ready = signBoxRatio !== null;
+      if (ready) label = `영역 지정 완료 — 다음 단계로 →`;
+    }
+
+    document.getElementById('hint').style.display = ready ? 'none' : '';
+    if (ready) {
+      btn.classList.remove('show'); void btn.offsetWidth; btn.classList.add('show');
+      btn.textContent = label;
+    } else {
+      btn.classList.remove('show');
+    }
+  }
+
+  /* ── 다음 단계로 ── */
+  function goNext() {
+    if (activeTab === 1) {
+      localStorage.setItem('signWidth',  sizeW);
+      localStorage.setItem('signHeight', sizeH);
+      localStorage.setItem('signSizeMode', 'manual');
+      localStorage.removeItem('signRatio');
+    } else {
+      localStorage.setItem('signRatio',    signBoxRatio.toFixed(4));
+      localStorage.setItem('signSizeMode', 'photo');
+      localStorage.removeItem('signWidth');
+      localStorage.removeItem('signHeight');
+      // 건물 사진 → Step 4 캔버스용 저장 (크롭했으면 크롭본, 아니면 원본)
+      const photoToSave = croppedDataURL || photoDataURL;
+      try { localStorage.setItem('buildingPhoto', photoToSave); }
+      catch(e) { sessionStorage.setItem('buildingPhoto', photoToSave); }
+    }
+    alert('[Step 4 준비 중]\n' + (activeTab === 1
+      ? `사이즈: ${sizeW} × ${sizeH} cm`
+      : `비율: ${parseFloat(signBoxRatio).toFixed(2)}`));
+    // window.location.href = 'step4-generate.html';
+  }
+
+  function goTo(url) { window.location.href = url; }
+</script>
+</body>
+</html>
