@@ -3,20 +3,6 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- 개발용 자동 새로고침: 파일 변경 감지 시 자동 리로드 -->
-  <script>
-    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
-      let _lastMod = '';
-      setInterval(async () => {
-        try {
-          const r = await fetch(location.href, { method: 'HEAD', cache: 'no-cache' });
-          const mod = r.headers.get('last-modified') || r.headers.get('etag') || '';
-          if (_lastMod && mod && mod !== _lastMod) location.reload();
-          if (mod) _lastMod = mod;
-        } catch(e) {}
-      }, 800);
-    }
-  </script>
   <title>간판 시안 편집기 v3</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
   <style>
@@ -80,6 +66,13 @@
     .btn-sm   { padding: 4px 9px; font-size: 11px; border-radius: 5px; }
     label.btn { display: inline-flex; align-items: center; }
 
+    /* 활성 모드 버튼 */
+    .btn-out.active {
+      border-color: var(--danger);
+      color: #f09090;
+      background: rgba(224,92,92,.10);
+    }
+
     /* ── 크롭 모드 배너 ── */
     .crop-bar {
       width: 100%;
@@ -96,6 +89,30 @@
     }
     .crop-bar.show { display: flex; }
     .crop-bar span { flex: 1; }
+
+    /* ── 지우기 모드 배너 ── */
+    .erase-bar {
+      width: 100%;
+      max-width: 900px;
+      background: rgba(224,92,92,.10);
+      border: 1px solid rgba(224,92,92,.40);
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 12px;
+      color: #f09090;
+      display: none;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .erase-bar.show { display: flex; }
+    .erase-bar > span { flex: 1; }
+    .erase-bar label {
+      display: flex; align-items: center; gap: 5px;
+      white-space: nowrap; color: #bbb; font-size: 12px;
+    }
+    .erase-bar input[type=range] { width: 76px; accent-color: var(--danger); cursor: pointer; }
+    .erase-bar .brush-px { min-width: 28px; text-align: right; color: var(--txt); }
 
     /* ── 워크스페이스 ──
        canvas-area 와 layer-panel 을 절대 고정 폭으로 잡지 않고
@@ -127,6 +144,46 @@
     /* 캔버스 엘리먼트 자체: CSS 너비만 100% (속성은 고정, cssOnly 방식) */
     .canvas-wrap canvas {
       display: block;
+    }
+
+    /* 마스크 오버레이 캔버스 */
+    #maskCanvas {
+      position: absolute; inset: 0;
+      z-index: 10;
+      cursor: none;  /* 커스텀 커서 사용 */
+      display: none;
+    }
+    #maskCanvas.show { display: block; }
+
+    /* 브러시 커서 미리보기 (마우스 따라다니는 원) */
+    #brushCursor {
+      position: absolute; z-index: 11;
+      border: 2px solid rgba(255,80,80,.9);
+      border-radius: 50%;
+      pointer-events: none;
+      display: none;
+      transform: translate(-50%, -50%);
+    }
+    #brushCursor.show { display: block; }
+
+    /* 사각형 선택 미리보기 */
+    #rectPreview {
+      position: absolute; z-index: 11;
+      border: 2px dashed rgba(255,80,80,.9);
+      background: rgba(255,70,70,.18);
+      pointer-events: none;
+      display: none;
+    }
+    #rectPreview.show { display: block; }
+
+    /* 지우기 모드 도구 선택 버튼 */
+    .erase-tool-btn {
+      padding: 4px 10px; border-radius: 5px; border: 1px solid rgba(224,92,92,.4);
+      font-size: 11px; cursor: pointer; background: transparent; color: #ccc;
+      transition: background .12s, color .12s;
+    }
+    .erase-tool-btn.active {
+      background: rgba(224,92,92,.25); color: #f09090; border-color: rgba(224,92,92,.8);
     }
 
     /* 힌트 오버레이 */
@@ -242,6 +299,23 @@
       padding: 13px 16px; font-size: 11.5px; font-family: 'Consolas', monospace;
       color: #7ec8a0; white-space: pre-wrap; word-break: break-all; display: none;
     }
+
+    /* ── 모바일: 레이어 패널을 캔버스 아래로 ── */
+    @media (max-width: 600px) {
+      .workspace   { flex-direction: column; }
+
+      /* 캔버스 영역: flex 늘이기 끄고 명시적 크기 지정 */
+      .canvas-wrap {
+        flex: none;
+        width: 100%;
+        min-height: 56vw;   /* 기본 비율 유지 (사진 업로드 전 placeholder 공간 확보) */
+      }
+
+      .layer-panel { width: 100%; }
+      .layer-list  { max-height: 180px; }
+      .toolbar     { gap: 5px; }
+      .btn         { padding: 6px 10px; font-size: 11px; }
+    }
   </style>
 </head>
 <body>
@@ -253,7 +327,8 @@
     <label class="btn btn-out" for="bgUpload" id="lblBg">📷 건물 사진</label>
     <input type="file" id="bgUpload" accept="image/*" style="display:none" />
 
-    <button class="btn btn-out" id="btnCrop" disabled>✂️ 영역 선택</button>
+    <button class="btn btn-out" id="btnCrop"  disabled>✂️ 영역 선택</button>
+    <button class="btn btn-out" id="btnErase" disabled>🧹 지우기</button>
 
     <button class="btn btn-out" id="btnShadow">💡 그림자</button>
     <button class="btn btn-ok"  id="btnExport">✅ 견적 요청</button>
@@ -267,12 +342,32 @@
   <button class="btn btn-red btn-sm" id="btnCropCancel">✗ 취소</button>
 </div>
 
+<!-- ── 지우기 모드 배너 ── -->
+<div class="erase-bar" id="eraseBar">
+  <span>🧹 &nbsp;지울 영역을 칠하고 실행하세요.</span>
+  <button class="erase-tool-btn active" id="btnToolBrush">🖌️ 브러시</button>
+  <button class="erase-tool-btn"        id="btnToolRect">⬜ 사각형</button>
+  <label id="brushSizeLabel">
+    크기
+    <input type="range" id="brushSize" min="5" max="120" value="30" />
+    <span class="brush-px" id="brushSizeVal">30</span>px
+  </label>
+  <button class="btn btn-warn" id="btnEraseOk">✓ 지우기 실행</button>
+  <button class="btn btn-red btn-sm" id="btnEraseCancel">✗ 취소</button>
+</div>
+
 <!-- ── 워크스페이스 ── -->
 <div class="workspace">
 
   <!-- 캔버스 -->
   <div class="canvas-wrap" id="canvasWrap">
     <canvas id="mainCanvas"></canvas>
+    <!-- 지우기 모드 브러시 마스크 오버레이 -->
+    <canvas id="maskCanvas"></canvas>
+    <!-- 브러시 커서 원 -->
+    <div id="brushCursor"></div>
+    <!-- 사각형 선택 미리보기 -->
+    <div id="rectPreview"></div>
     <div class="hint" id="hint">
       <div class="icon">🏗️</div>
       <p>먼저 <b>건물 사진</b>을 업로드하세요.<br/>이후 레이어 패널 <b>+ 추가</b>로 간판을 얹습니다.</p>
@@ -343,6 +438,8 @@ function fitCanvas() {
   // 레이어 패널 높이도 캔버스에 맞춤
   const lp = document.getElementById('layerList');
   lp.style.maxHeight = Math.max(100, h - 34) + 'px';
+  // 마스크 오버레이도 동기화
+  syncMaskSize();
 }
 window.addEventListener('resize', fitCanvas);
 // 첫 렌더 후 호출 (Fabric wrapper 생성 완료 시점)
@@ -360,12 +457,20 @@ function resizeLogical(newW, newH) {
 //  STATE
 // ═══════════════════════════════════════════════════════
 let bgImage    = null;          // fabric.Image 배경
-let bgOrigEl   = null;          // 원본 HTMLImageElement (크롭용)
+let bgOrigEl   = null;          // 원본 HTMLImageElement (크롭/인페인팅용)
 let signs      = [];            // [{ id, label, colorIdx, fabricObj, visible, locked }]
 let shadowOn   = true;
 let colorCursor = 0;
 let cropMode   = false;
 let cropRect   = null;
+
+// 지우기 모드 상태
+let eraseMode    = false;
+let isDrawing    = false;
+let brushRadius  = 30;
+let eraseRectMode = false;   // false=브러시, true=사각형
+let rectStartL   = null;     // 사각형 시작점 (논리 좌표)
+let rectStartC   = null;     // 사각형 시작점 (CSS 좌표)
 
 const COLORS = ['#6c8ef5','#e05c5c','#3ecf8e','#f0a050','#b06cf5','#50d0f0','#f5c842','#f56ca0'];
 
@@ -420,7 +525,8 @@ function loadBackground(url, origEl) {
     canvas.insertAt(bgImage, 0);
     canvas.renderAll();
     hideHint();
-    $('btnCrop').disabled = false;
+    $('btnCrop').disabled  = false;
+    $('btnErase').disabled = false;
   });
 }
 
@@ -456,6 +562,7 @@ function startCropMode() {
   canvas.renderAll();
 
   $('btnCrop').disabled   = true;
+  $('btnErase').disabled  = true;
   $('lblBg').style.pointerEvents = 'none';
   $('lblBg').style.opacity = '.3';
   $('lblSign').style.pointerEvents = 'none';
@@ -509,7 +616,8 @@ function endCropMode() {
   canvas.discardActiveObject();
   canvas.renderAll();
 
-  $('btnCrop').disabled  = false;
+  $('btnCrop').disabled  = !bgImage;
+  $('btnErase').disabled = !bgImage;
   $('lblBg').style.pointerEvents = '';
   $('lblBg').style.opacity = '';
   $('lblSign').style.pointerEvents = '';
@@ -522,10 +630,471 @@ $('btnCropOk').addEventListener('click', confirmCrop);
 $('btnCropCancel').addEventListener('click', endCropMode);
 
 // ═══════════════════════════════════════════════════════
+//  지우기 모드 (LaMa 인페인팅)
+// ═══════════════════════════════════════════════════════
+
+/** 마스크 오버레이 캔버스 — CSS 크기 동기화 */
+function syncMaskSize() {
+  const mc   = $('maskCanvas');
+  const wrap = $('canvasWrap');
+  const w    = wrap.clientWidth;
+  if (!w) return;
+  const h = Math.round(w * CH / CW);
+  // CSS 크기만 맞춤 (logical 크기는 CW/CH 비율로 실제 크기 사용)
+  mc.style.width  = w + 'px';
+  mc.style.height = h + 'px';
+}
+
+function startEraseMode() {
+  if (!bgImage) return;
+  if (cropMode) return;
+  eraseMode = true;
+  $('btnErase').classList.add('active');
+
+  // 간판 조작 비활성화
+  signs.forEach(s => s.fabricObj.set({ selectable: false, evented: false }));
+  canvas.discardActiveObject();
+  canvas.renderAll();
+
+  // 마스크 캔버스 초기화 (논리 크기로 내부 픽셀 설정)
+  const mc = $('maskCanvas');
+  mc.width  = CW;
+  mc.height = CH;
+  syncMaskSize();
+  mc.classList.add('show');
+
+  const ctx = mc.getContext('2d');
+  ctx.clearRect(0, 0, CW, CH);
+
+  // 사각형 미리보기 초기화
+  $('rectPreview').classList.remove('show');
+  rectStartL = null; rectStartC = null;
+
+  // 초기 도구 상태 동기화
+  eraseRectMode = false;
+  $('btnToolBrush').classList.add('active');
+  $('btnToolRect').classList.remove('active');
+  $('brushSizeLabel').style.display = '';
+  mc.style.cursor = 'none';
+  updateBrushCursorSize();
+
+  // 마스크 이벤트
+  mc.addEventListener('mousedown',  onMaskDown);
+  mc.addEventListener('mousemove',  onMaskMove);
+  mc.addEventListener('mouseup',    onMaskUp);
+  mc.addEventListener('mouseleave', onMaskLeave);
+  mc.addEventListener('mouseenter', onMaskEnter);
+  mc.addEventListener('touchstart', onMaskTouchStart, { passive: false });
+  mc.addEventListener('touchmove',  onMaskTouchMove,  { passive: false });
+  mc.addEventListener('touchend',   onMaskTouchEnd);
+
+  // 툴바 비활성화
+  $('btnCrop').disabled = true;
+  $('lblBg').style.pointerEvents = 'none';
+  $('lblBg').style.opacity = '.3';
+  $('lblSign').style.pointerEvents = 'none';
+  $('lblSign').style.opacity = '.3';
+  $('eraseBar').classList.add('show');
+}
+
+function endEraseMode() {
+  eraseMode = false;
+  isDrawing = false;
+  $('btnErase').classList.remove('active');
+
+  // 마스크 캔버스 숨기기
+  const mc = $('maskCanvas');
+  mc.classList.remove('show');
+  mc.removeEventListener('mousedown',  onMaskDown);
+  mc.removeEventListener('mousemove',  onMaskMove);
+  mc.removeEventListener('mouseup',    onMaskUp);
+  mc.removeEventListener('mouseleave', onMaskLeave);
+  mc.removeEventListener('mouseenter', onMaskEnter);
+  mc.removeEventListener('touchstart', onMaskTouchStart);
+  mc.removeEventListener('touchmove',  onMaskTouchMove);
+  mc.removeEventListener('touchend',   onMaskTouchEnd);
+
+  // 커서/미리보기 숨기기
+  $('brushCursor').classList.remove('show');
+  $('rectPreview').classList.remove('show');
+  rectStartL = null; rectStartC = null;
+
+  // 간판 복원
+  signs.forEach(s => {
+    if (!s.locked) s.fabricObj.set({ selectable: true, evented: true });
+  });
+  canvas.renderAll();
+
+  // 툴바 복원
+  $('btnCrop').disabled  = !bgImage;
+  $('lblBg').style.pointerEvents = '';
+  $('lblBg').style.opacity = '';
+  $('lblSign').style.pointerEvents = '';
+  $('lblSign').style.opacity = '';
+  $('eraseBar').classList.remove('show');
+
+  // 실행 버튼 복원
+  const btn = $('btnEraseOk');
+  btn.disabled = false;
+  btn.textContent = '✓ 지우기 실행';
+}
+
+// ── 브러시 커서 UI ──
+function updateBrushCursorSize() {
+  const cur  = $('brushCursor');
+  // 마스크 캔버스 CSS 스케일 비율 (CSS픽셀/논리픽셀)
+  const scale = ($('canvasWrap').clientWidth || CW) / CW;
+  const px = Math.round(brushRadius * scale * 2);
+  cur.style.width  = px + 'px';
+  cur.style.height = px + 'px';
+}
+
+function moveBrushCursor(cssX, cssY) {
+  const cur = $('brushCursor');
+  cur.style.left = cssX + 'px';
+  cur.style.top  = cssY + 'px';
+}
+
+// ── 좌표 변환: CSS 이벤트 → 논리 캔버스 좌표 ──
+function cssToLogical(cssX, cssY) {
+  const scale = CW / ($('canvasWrap').clientWidth || CW);
+  return { x: cssX * scale, y: cssY * scale };
+}
+
+function getEventPos(el, e) {
+  const rect = el.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+// ── 브러시 그리기 (논리 좌표) ──
+function drawBrushAt(lx, ly) {
+  const ctx = $('maskCanvas').getContext('2d');
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = 'rgba(255, 70, 70, 0.65)';
+  ctx.beginPath();
+  ctx.arc(lx, ly, brushRadius, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// ── 마우스 이벤트 핸들러 ──
+function onMaskDown(e) {
+  isDrawing = true;
+  const p = getEventPos($('maskCanvas'), e);
+  const l = cssToLogical(p.x, p.y);
+  if (eraseRectMode) {
+    rectStartL = l;
+    rectStartC = p;
+    const rp = $('rectPreview');
+    rp.style.left = p.x + 'px'; rp.style.top = p.y + 'px';
+    rp.style.width = '0'; rp.style.height = '0';
+    rp.classList.add('show');
+  } else {
+    drawBrushAt(l.x, l.y);
+    moveBrushCursor(p.x, p.y);
+  }
+}
+function onMaskMove(e) {
+  const p = getEventPos($('maskCanvas'), e);
+  if (eraseRectMode) {
+    if (!isDrawing || !rectStartC) return;
+    const rp = $('rectPreview');
+    const x = Math.min(p.x, rectStartC.x), y = Math.min(p.y, rectStartC.y);
+    const w = Math.abs(p.x - rectStartC.x), h = Math.abs(p.y - rectStartC.y);
+    rp.style.left = x + 'px'; rp.style.top  = y + 'px';
+    rp.style.width = w + 'px'; rp.style.height = h + 'px';
+  } else {
+    moveBrushCursor(p.x, p.y);
+    if (!isDrawing) return;
+    const l = cssToLogical(p.x, p.y);
+    drawBrushAt(l.x, l.y);
+  }
+}
+function onMaskUp(e) {
+  if (!isDrawing) return;
+  isDrawing = false;
+  if (eraseRectMode && rectStartL && e) {
+    // 사각형을 마스크 캔버스에 채움
+    const p = getEventPos($('maskCanvas'), e);
+    const l = cssToLogical(p.x, p.y);
+    const ctx = $('maskCanvas').getContext('2d');
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = 'rgba(255, 70, 70, 0.80)';
+    const lx = Math.min(l.x, rectStartL.x);
+    const ly = Math.min(l.y, rectStartL.y);
+    const lw = Math.abs(l.x - rectStartL.x);
+    const lh = Math.abs(l.y - rectStartL.y);
+    if (lw > 1 && lh > 1) ctx.fillRect(lx, ly, lw, lh);
+    $('rectPreview').classList.remove('show');
+    rectStartL = null; rectStartC = null;
+  }
+}
+function onMaskLeave() {
+  // 브러시 모드: 커서 숨김. 사각형 모드: 드래그 중이면 유지
+  if (!eraseRectMode) {
+    isDrawing = false;
+    $('brushCursor').classList.remove('show');
+  }
+}
+function onMaskEnter() {
+  if (!eraseRectMode) $('brushCursor').classList.add('show');
+}
+
+// ── 터치 이벤트 핸들러 ──
+function onMaskTouchStart(e) {
+  e.preventDefault();
+  isDrawing = true;
+  const t = e.touches[0];
+  const p = getEventPos($('maskCanvas'), t);
+  const l = cssToLogical(p.x, p.y);
+  if (eraseRectMode) {
+    rectStartL = l; rectStartC = p;
+    const rp = $('rectPreview');
+    rp.style.left = p.x + 'px'; rp.style.top = p.y + 'px';
+    rp.style.width = '0'; rp.style.height = '0';
+    rp.classList.add('show');
+  } else {
+    drawBrushAt(l.x, l.y);
+  }
+}
+function onMaskTouchMove(e) {
+  e.preventDefault();
+  if (!isDrawing) return;
+  const t = e.touches[0];
+  const p = getEventPos($('maskCanvas'), t);
+  if (eraseRectMode && rectStartC) {
+    const rp = $('rectPreview');
+    const x = Math.min(p.x, rectStartC.x), y = Math.min(p.y, rectStartC.y);
+    rp.style.left = x + 'px'; rp.style.top  = y + 'px';
+    rp.style.width  = Math.abs(p.x - rectStartC.x) + 'px';
+    rp.style.height = Math.abs(p.y - rectStartC.y) + 'px';
+  } else {
+    const l = cssToLogical(p.x, p.y);
+    drawBrushAt(l.x, l.y);
+  }
+}
+function onMaskTouchEnd(e) {
+  if (!isDrawing || !eraseRectMode || !rectStartL) { isDrawing = false; return; }
+  isDrawing = false;
+  const t = e.changedTouches[0];
+  const p = getEventPos($('maskCanvas'), t);
+  const l = cssToLogical(p.x, p.y);
+  const ctx = $('maskCanvas').getContext('2d');
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = 'rgba(255, 70, 70, 0.80)';
+  const lx = Math.min(l.x, rectStartL.x), ly = Math.min(l.y, rectStartL.y);
+  const lw = Math.abs(l.x - rectStartL.x), lh = Math.abs(l.y - rectStartL.y);
+  if (lw > 1 && lh > 1) ctx.fillRect(lx, ly, lw, lh);
+  $('rectPreview').classList.remove('show');
+  rectStartL = null; rectStartC = null;
+}
+
+// ── 확정: 인페인팅 실행 ──
+async function confirmErase() {
+  if (!bgImage) return;
+
+  // 마스크에 뭔가 그려졌는지 확인
+  const mc  = $('maskCanvas');
+  const ctx = mc.getContext('2d');
+  const chk = ctx.getImageData(0, 0, CW, CH);
+  let painted = false;
+  for (let i = 3; i < chk.data.length; i += 4) {
+    if (chk.data[i] > 10) { painted = true; break; }
+  }
+  if (!painted) { alert('지울 영역을 먼저 브러시로 칠해주세요.'); return; }
+
+  const btn = $('btnEraseOk');
+  btn.disabled = true;
+  btn.textContent = '⏳ 준비 중…';
+
+  try {
+    // ── 1. 배경 이미지 추출 (논리 캔버스에서 배경 영역만) ──
+    const dispW = Math.round(bgImage.width  * bgImage.scaleX);
+    const dispH = Math.round(bgImage.height * bgImage.scaleY);
+    const dispL = bgImage.left;
+    const dispT = bgImage.top;
+
+    const bgCvs = document.createElement('canvas');
+    bgCvs.width  = dispW;
+    bgCvs.height = dispH;
+    bgCvs.getContext('2d').drawImage(bgOrigEl, 0, 0, dispW, dispH);
+    const imageDataUrl = bgCvs.toDataURL('image/png');
+
+    // ── 2. 마스크 추출 (배경 영역만 잘라내어 B&W 변환) ──
+    // 마스크는 논리 캔버스 전체(CW×CH)로 그려져 있음
+    // 배경 이미지가 차지하는 영역(dispL, dispT, dispW, dispH)만 잘라냄
+    const maskCvs = document.createElement('canvas');
+    maskCvs.width  = dispW;
+    maskCvs.height = dispH;
+    const mCtx = maskCvs.getContext('2d');
+    mCtx.drawImage(mc, dispL, dispT, dispW, dispH, 0, 0, dispW, dispH);
+
+    // 칠해진 픽셀 → 흰색(지우기), 나머지 → 검정(유지)
+    const mData = mCtx.getImageData(0, 0, dispW, dispH);
+    const md = mData.data;
+    for (let i = 0; i < md.length; i += 4) {
+      if (md[i + 3] > 30) {
+        md[i] = md[i+1] = md[i+2] = 255; md[i+3] = 255;  // 흰색 = 지우기
+      } else {
+        md[i] = md[i+1] = md[i+2] = 0;   md[i+3] = 255;  // 검정 = 유지
+      }
+    }
+    mCtx.putImageData(mData, 0, 0);
+    const maskDataUrl = maskCvs.toDataURL('image/png');
+
+    // ── 3. LaMa API 호출 ──
+    btn.textContent = '⏳ 서버 연결 중…';
+    const resultUrl = await callLaMaAPI(imageDataUrl, maskDataUrl);
+
+    // ── 4. 결과를 배경으로 교체 ──
+    loadBackground(resultUrl, null);
+    endEraseMode();
+
+  } catch(e) {
+    console.error('인페인팅 실패:', e);
+    alert('지우기 실패:\n' + (e.message || String(e)));
+    btn.disabled = false;
+    btn.textContent = '✓ 지우기 실행';
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  인페인팅 설정 — 여기만 바꾸면 로컬 ↔ 클라우드 전환
+// ═══════════════════════════════════════════════════════
+const INPAINT_CONFIG = {
+  // ▶ 개발 단계: LOCAL_MODE = true
+  //   iopaint start --model=lama --device=cuda --port=8080 --cors-allowed-origins="*"
+  //
+  // ▶ 서비스 론칭: LOCAL_MODE = false, PROVIDER + API_KEY 설정
+  LOCAL_MODE:      true,
+  LOCAL_ENDPOINT:  'http://localhost:8080',
+
+  PROVIDER:  'replicate',    // 'replicate' | 'fal'
+  API_KEY:   '',             // 서비스 시 발급한 키 입력
+};
+
+// ═══════════════════════════════════════════════════════
+//  인페인팅 진입점 — LOCAL_MODE 에 따라 자동 분기
+// ═══════════════════════════════════════════════════════
+async function callLaMaAPI(imageDataUrl, maskDataUrl) {
+  if (INPAINT_CONFIG.LOCAL_MODE) {
+    return callLocalIOPaint(imageDataUrl, maskDataUrl);
+  }
+  return callCloudInpaint(imageDataUrl, maskDataUrl);
+}
+
+// ── 로컬 IOPaint 서버 호출 ──────────────────────────────
+async function callLocalIOPaint(imageDataUrl, maskDataUrl) {
+  const btn = $('btnEraseOk');
+  if (btn) btn.textContent = '⏳ 로컬 AI 처리 중…';
+
+  // IOPaint API 는 JSON + base64 형식 (multipart 아님)
+  // data URL 에서 "data:image/png;base64," 헤더 제거 후 base64만 전송
+  const imageB64 = imageDataUrl.split(',')[1];
+  const maskB64  = maskDataUrl.split(',')[1];
+
+  let resp;
+  try {
+    resp = await fetch(`${INPAINT_CONFIG.LOCAL_ENDPOINT}/api/v1/inpaint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image:                    imageB64,
+        mask:                     maskB64,
+        ldmSteps:                 25,
+        hdStrategy:               'Original',
+        hdStrategyCropMargin:     32,
+        hdStrategyCropTrigerSize: 512,
+        hdStrategyResizeLimit:    2048,
+        prompt:                   '',
+        negativePrompt:           '',
+        useCroper:                false,
+      }),
+    });
+  } catch(e) {
+    throw new Error(
+      `IOPaint 서버에 연결할 수 없습니다.\n` +
+      `서버 실행 명령:\n` +
+      `D:\\iopaint-env\\Scripts\\iopaint start --model=lama --device=cpu --model-dir=D:\\ai-models --port=8080\n\n` +
+      `(에러: ${e.message})`
+    );
+  }
+
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => '');
+    throw new Error(`IOPaint 오류: HTTP ${resp.status}\n${txt.slice(0, 300)}`);
+  }
+
+  // 결과 이미지 바이너리로 반환
+  const blob = await resp.blob();
+  return URL.createObjectURL(blob);
+}
+
+// ── 클라우드 API (서비스 론칭 시 구현) ────────────────────
+// 교체 방법: INPAINT_CONFIG.LOCAL_MODE = false 후 이 함수에 구현
+async function callCloudInpaint(imageDataUrl, maskDataUrl) {
+  const { PROVIDER, API_KEY } = INPAINT_CONFIG;
+  if (!API_KEY) throw new Error('INPAINT_CONFIG.API_KEY 를 설정하세요.');
+
+  if (PROVIDER === 'replicate') {
+    // TODO: https://replicate.com/andreasjansson/lama 또는 유사 모델
+    throw new Error('Replicate 구현 예정 (API_KEY 설정 후 활성화)');
+  }
+  if (PROVIDER === 'fal') {
+    // TODO: https://fal.ai/models/fal-ai/lama
+    throw new Error('Fal.ai 구현 예정 (API_KEY 설정 후 활성화)');
+  }
+  throw new Error(`알 수 없는 PROVIDER: ${PROVIDER}`);
+}
+
+// ── 유틸: base64 data URL → Blob ──────────────────────────
+function dataURLtoBlob(dataURL) {
+  const [header, b64] = dataURL.split(',');
+  const mime  = header.match(/:(.*?);/)[1];
+  const bytes = atob(b64);
+  const buf   = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i);
+  return new Blob([buf], { type: mime });
+}
+
+// ── 버튼 이벤트 ──
+$('btnErase').addEventListener('click', () => {
+  if (!eraseMode) startEraseMode();
+});
+$('btnEraseOk').addEventListener('click', confirmErase);
+$('btnEraseCancel').addEventListener('click', endEraseMode);
+
+$('brushSize').addEventListener('input', function() {
+  brushRadius = +this.value;
+  $('brushSizeVal').textContent = this.value;
+  updateBrushCursorSize();
+});
+
+// 브러시 / 사각형 도구 전환
+$('btnToolBrush').addEventListener('click', () => {
+  eraseRectMode = false;
+  $('btnToolBrush').classList.add('active');
+  $('btnToolRect').classList.remove('active');
+  $('brushSizeLabel').style.display = '';
+  $('maskCanvas').style.cursor = 'none';
+  $('brushCursor').classList.remove('show');
+  $('rectPreview').classList.remove('show');
+  rectStartL = null; rectStartC = null; isDrawing = false;
+});
+$('btnToolRect').addEventListener('click', () => {
+  eraseRectMode = true;
+  $('btnToolRect').classList.add('active');
+  $('btnToolBrush').classList.remove('active');
+  $('brushSizeLabel').style.display = 'none';   // 사각형 모드엔 크기 슬라이더 불필요
+  $('maskCanvas').style.cursor = 'crosshair';
+  $('brushCursor').classList.remove('show');
+  rectStartL = null; rectStartC = null; isDrawing = false;
+});
+
+// ═══════════════════════════════════════════════════════
 //  간판 추가 (AI 연동 시 이 함수 하나만 호출)
 // ═══════════════════════════════════════════════════════
 function addSignFromURL(url, label) {
-  if (cropMode) return;
+  if (cropMode || eraseMode) return;
   fabric.Image.fromURL(url, img => {
     if (!img) return;
     const id     = 'sign_' + Date.now();
@@ -843,8 +1412,15 @@ canvas.on('object:rotating',   e => updateInfo(e.target));
 // ═══════════════════════════════════════════════════════
 document.addEventListener('keydown', e => {
   if (e.target.matches('input,textarea')) return;
-  if (cropMode && e.key === 'Escape') { endCropMode(); return; }
-  if (cropMode) return;
+
+  // Escape 로 모든 모드 종료
+  if (e.key === 'Escape') {
+    if (eraseMode) { endEraseMode(); return; }
+    if (cropMode)  { endCropMode();  return; }
+    return;
+  }
+
+  if (cropMode || eraseMode) return;
 
   if (e.key==='Delete'||e.key==='Backspace') {
     canvas.getActiveObjects().forEach(o => { if (o.signId) { const i=idx(o.signId); if(i>=0) doDel(i); } });

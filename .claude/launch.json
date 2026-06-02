@@ -4,8 +4,8 @@
     {
       "name": "sianmaker",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["live-server", ".", "--port=3000", "--no-browser", "--quiet"],
-      "port": 3000
+      "runtimeArgs": ["live-server", ".", "--port=3031", "--no-browser", "--quiet"],
+      "port": 3031
     }
   ]
 }

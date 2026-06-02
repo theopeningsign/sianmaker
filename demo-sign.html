@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>한글 간판 렌더 데모 (AI 없이)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Jua&family=Do+Hyeon&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Pretendard','Apple SD Gothic Neo',sans-serif;
+    background: #0d0e12;
+    color: #e8e8ee;
+    padding: 28px 16px 60px;
+    display: flex; flex-direction: column; align-items: center; gap: 26px;
+  }
+  h1 { font-size: 20px; font-weight: 800; letter-spacing: -.5px; }
+  h1 span { color: #6f8cff; }
+  .sub { font-size: 13px; color: #8a8a99; margin-top:-14px; text-align:center; line-height:1.6; }
+
+  .scene {
+    width: min(680px, 96vw);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 10px 40px rgba(0,0,0,.5);
+    position: relative;
+  }
+  .scene-cap {
+    position:absolute; top:12px; left:14px; z-index:5;
+    background: rgba(0,0,0,.55); backdrop-filter: blur(4px);
+    padding:6px 12px; border-radius:8px; font-size:12px; font-weight:700;
+    letter-spacing:-.3px;
+  }
+  .scene-cap small{ display:block; font-weight:500; color:#b9b9c8; font-size:10.5px; margin-top:2px;}
+
+  /* ── 벽(밤) ── */
+  .wall-night {
+    height: 280px;
+    display:flex; align-items:center; justify-content:center;
+    background:
+      radial-gradient(120% 90% at 50% 18%, rgba(60,60,80,.35), transparent 60%),
+      repeating-linear-gradient(0deg,#2a2118 0 38px,#241c14 38px 40px),
+      repeating-linear-gradient(90deg,#2c2419 0 78px,#241c14 78px 82px),
+      #221a12;
+    position:relative;
+  }
+  /* ── 벽(낮) ── */
+  .wall-day {
+    height: 280px;
+    display:flex; align-items:center; justify-content:center;
+    background:
+      repeating-linear-gradient(0deg,#cfcdc8 0 44px,#c4c2bc 44px 46px),
+      repeating-linear-gradient(90deg,#d6d4cf 0 90px,#cbc9c3 90px 94px),
+      #cdcbc5;
+    position:relative;
+  }
+
+  /* 벽에 번지는 빛 (간판 반사광) */
+  .spill {
+    position:absolute; left:50%; top:50%;
+    width:560px; height:200px; transform:translate(-50%,-46%);
+    border-radius:50%; filter: blur(45px); z-index:0;
+  }
+
+  /* ── 공통 글자 ── */
+  .sign { position:relative; z-index:2; line-height:1; white-space:nowrap; }
+
+  /* ── ① 채널간판 (전면발광, 밤) — 빨강 아크릴 ── */
+  .channel-red {
+    font-family:'Black Han Sans',sans-serif;
+    font-size: 92px;
+    color:#ff5a5a;
+    -webkit-text-stroke: 2px #b81d1d;
+    text-shadow:
+      /* 측면(리턴) 두께 — 우하향 적층 */
+      1px 1px 0 #7e1414, 2px 2px 0 #741212, 3px 3px 0 #6a1010,
+      4px 4px 0 #5e0d0d, 5px 5px 0 #520b0b, 6px 6px 1px #470909,
+      7px 8px 2px rgba(0,0,0,.55),
+      /* LED 면발광 */
+      0 0 14px rgba(255,90,90,.95), 0 0 30px rgba(255,50,50,.85),
+      0 0 60px rgba(255,30,30,.6);
+  }
+
+  /* ── ② 네온사인 (밤) — 핑크 ── */
+  .neon-pink {
+    font-family:'Jua',sans-serif;
+    font-size: 88px;
+    color:#fff0fb;
+    text-shadow:
+      0 0 4px #fff,
+      0 0 10px #ff58d8, 0 0 22px #ff2bc8,
+      0 0 42px #ff12bd, 0 0 78px #e000a8;
+  }
+
+  /* ── ③ 채널간판 (주간, 비발광) — 금속/무광 ── */
+  .channel-metal {
+    font-family:'Do Hyeon',sans-serif;
+    font-size: 92px;
+    color:#3a3f4a;
+    -webkit-text-stroke: 1px #23262d;
+    text-shadow:
+      1px 1px 0 #2b2f37, 2px 2px 0 #262a31, 3px 3px 0 #20242a,
+      4px 4px 0 #1b1e23, 5px 6px 3px rgba(0,0,0,.45),
+      /* 상단 하이라이트(금속 반사) */
+      0 -1px 0 #6b7280;
+  }
+
+  .legend {
+    width:min(680px,96vw);
+    background:#15161c; border:1px solid #23242c; border-radius:14px;
+    padding:18px 20px; font-size:13px; line-height:1.85; color:#c4c4d2;
+  }
+  .legend b{color:#fff;}
+  .legend .ok{color:#5fd38a;font-weight:800;}
+  .legend .no{color:#ff7a7a;font-weight:800;}
+  .row{display:flex;gap:10px;align-items:flex-start;}
+  .row .k{flex:0 0 130px;color:#8a8a99;font-weight:700;}
+</style>
+</head>
+<body>
+  <h1>한글 간판 렌더 데모 — <span>AI 없이, 폰트 그대로</span></h1>
+  <p class="sub">상호명 "대박치킨"을 한글 폰트로 직접 렌더 → 코드로 입체·발광·반사광 부여.<br>한글이 100% 안 깨지면서 진짜 채널·네온 간판 느낌이 나는지 확인하세요.</p>
+
+  <!-- ① 채널 전면발광 밤 -->
+  <div class="scene">
+    <div class="scene-cap">① 채널간판 · 전면발광 (야간)<small>빨강 아크릴 면 + LED 발광 + 측면 두께</small></div>
+    <div class="wall-night">
+      <div class="spill" style="background:rgba(255,40,40,.45)"></div>
+      <div class="sign channel-red">대박치킨</div>
+    </div>
+  </div>
+
+  <!-- ② 네온 밤 -->
+  <div class="scene">
+    <div class="scene-cap">② 네온사인 (야간)<small>발광 튜브 + 벽면 반사광</small></div>
+    <div class="wall-night">
+      <div class="spill" style="background:rgba(255,40,200,.4)"></div>
+      <div class="sign neon-pink">대박치킨</div>
+    </div>
+  </div>
+
+  <!-- ③ 채널 주간 금속 -->
+  <div class="scene">
+    <div class="scene-cap" style="color:#1a1a1a;background:rgba(255,255,255,.6)">③ 채널간판 · 비발광 (주간)<small style="color:#444">무광 금속 재질 + 입체 두께</small></div>
+    <div class="wall-day">
+      <div class="sign channel-metal">대박치킨</div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div class="row"><div class="k">한글 정확도</div><div><span class="ok">100% (폰트 그대로, 깨짐 0%)</span> — AI 한글 생성과 결정적 차이</div></div>
+    <div class="row"><div class="k">생성 비용</div><div><span class="ok">0원</span> · 색·폰트·글자 바꿔도 <b>실시간 즉시</b> 반영</div></div>
+    <div class="row"><div class="k">이 데모</div><div>CSS만으로 빠르게 만든 근사치예요. 실제 제품은 <b>WebGL(Three.js)</b>로 진짜 3D 압출·베벨·bloom을 써서 더 입체적입니다.</div></div>
+    <div class="row"><div class="k">AI가 들어갈 곳</div><div>글자가 아니라 <b>건물 사진 위 합성·접촉그림자·벽 반사광</b> (간판은 잠그고 환경만)</div></div>
+  </div>
+</body>
+</html>
