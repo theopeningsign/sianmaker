@@ -435,6 +435,7 @@
         <div class="canvas-toolbar">
           <button class="tool-btn" id="btnCropMode" onclick="enterCropMode()">건물 영역 선택</button>
           <button class="tool-btn active" id="btnBoxMode" onclick="enterBoxMode()">간판 영역 지정</button>
+          <button class="tool-btn" id="btnEraseMode" onclick="enterEraseMode()">🧹 기존 간판 지우기</button>
           <button class="tool-btn danger" onclick="resetPhoto()">사진 다시 선택</button>
           <span class="tool-hint" id="toolHint">드래그해서 간판 위치를 지정하세요</span>
         </div>
@@ -447,6 +448,18 @@
         <div class="crop-confirm-bar" id="cropConfirmBar">
           <button class="tool-btn active" onclick="confirmCrop()">이 영역으로 확정</button>
           <button class="tool-btn" onclick="cancelCrop()">취소</button>
+        </div>
+
+        <!-- 지우기 도구 -->
+        <div class="crop-confirm-bar" id="eraseBar">
+          <button class="tool-btn active" id="etBrush" onclick="setEraseTool(false)">🖌️ 브러시</button>
+          <button class="tool-btn" id="etRect" onclick="setEraseTool(true)">⬜ 사각형</button>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#666;font-weight:600;">크기
+            <input type="range" id="brushSize" min="8" max="80" value="32" style="width:80px;" oninput="brushPx=+this.value">
+          </label>
+          <button class="tool-btn active" onclick="runErase()">✓ 지우기 실행</button>
+          <button class="tool-btn" onclick="clearEraseMask()">칠한거 지우기</button>
+          <button class="tool-btn" onclick="enterBoxMode()">취소</button>
         </div>
 
         <!-- 지정 결과 -->
@@ -474,6 +487,7 @@
   let photoDataURL = null;           // 원본 사진
   let croppedDataURL = null;         // 크롭 후 사진
   let signBoxRatio = null;           // 간판 영역 비율 (w/h)
+  let signBoxFrac  = null;           // 간판 영역 위치/크기 (0~1 비율, 합성용)
 
   // 캔버스
   let canvas, ctx;
@@ -486,6 +500,12 @@
   let dragStart = { x: 0, y: 0 };
   let dragRect  = null;              // { x, y, w, h } in canvas px
   let cropRect  = null;              // 확정된 크롭 영역 (원본 이미지 좌표)
+
+  // 지우기(인페인팅) 마스크
+  let eraseMaskCanvas = null, eraseMaskCtx = null;
+  let brushPx = 32;
+  let isPainting = false;
+  let eraseRectMode = false, eraseRectDrag = null, eraseRectStart = null;
 
   /* ── 탭 전환 ── */
   function switchTab(n) {
@@ -581,6 +601,11 @@
       imgDrawX = 0; imgDrawY = 0;
       imgDrawW = canvas.width; imgDrawH = canvas.height;
 
+      // 지우기 마스크 캔버스 초기화
+      eraseMaskCanvas = document.createElement('canvas');
+      eraseMaskCanvas.width = canvas.width; eraseMaskCanvas.height = canvas.height;
+      eraseMaskCtx = eraseMaskCanvas.getContext('2d');
+
       drawCanvas();
       enterBoxMode();
     };
@@ -591,6 +616,19 @@
     if (!ctx || !imgEl) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(imgEl, imgDrawX, imgDrawY, imgDrawW, imgDrawH);
+
+    // 지우기 마스크 오버레이 (반투명 빨강)
+    if (mode === 'erase' && eraseMaskCanvas) {
+      ctx.save(); ctx.globalAlpha = 0.5;
+      ctx.drawImage(eraseMaskCanvas, 0, 0);
+      ctx.restore();
+      // 사각형 드래그 미리보기
+      if (eraseRectDrag) {
+        ctx.strokeStyle = '#f04040'; ctx.lineWidth = 2; ctx.setLineDash([6,3]);
+        ctx.strokeRect(eraseRectDrag.x, eraseRectDrag.y, eraseRectDrag.w, eraseRectDrag.h);
+        ctx.setLineDash([]);
+      }
+    }
 
     if (dragRect) {
       const color = mode === 'crop' ? '#4f6ef7' : '#f04070';
@@ -630,8 +668,10 @@
     dragRect = null;
     document.getElementById('btnCropMode').classList.add('active');
     document.getElementById('btnBoxMode').classList.remove('active');
+    document.getElementById('btnEraseMode').classList.remove('active');
     document.getElementById('toolHint').textContent = '드래그해서 건물이 보이는 영역을 선택하세요';
     document.getElementById('cropConfirmBar').classList.remove('show');
+    document.getElementById('eraseBar').classList.remove('show');
     document.getElementById('boxResult').classList.remove('show');
     signBoxRatio = null;
     drawCanvas();
@@ -643,9 +683,90 @@
     dragRect = null;
     document.getElementById('btnBoxMode').classList.add('active');
     document.getElementById('btnCropMode').classList.remove('active');
+    document.getElementById('btnEraseMode').classList.remove('active');
     document.getElementById('toolHint').textContent = '드래그해서 간판 위치를 지정하세요';
     document.getElementById('cropConfirmBar').classList.remove('show');
+    document.getElementById('eraseBar').classList.remove('show');
     drawCanvas();
+  }
+
+  /* ── 기존 간판 지우기 (Gemini 인페인팅) ── */
+  function enterEraseMode() {
+    mode = 'erase';
+    dragRect = null;
+    document.getElementById('btnEraseMode').classList.add('active');
+    document.getElementById('btnBoxMode').classList.remove('active');
+    document.getElementById('btnCropMode').classList.remove('active');
+    document.getElementById('toolHint').textContent = '지울 기존 간판 위를 칠하세요 → 지우기 실행';
+    document.getElementById('cropConfirmBar').classList.remove('show');
+    document.getElementById('boxResult').classList.remove('show');
+    document.getElementById('eraseBar').classList.add('show');
+    setEraseTool(false);
+    drawCanvas();
+  }
+  function setEraseTool(rect) {
+    eraseRectMode = rect; eraseRectDrag = null; eraseRectStart = null; isPainting = false;
+    document.getElementById('etBrush').classList.toggle('active', !rect);
+    document.getElementById('etRect').classList.toggle('active', rect);
+    document.getElementById('toolHint').textContent = rect ? '드래그해서 지울 사각형 범위를 그리세요' : '지울 부분 위를 브러시로 칠하세요';
+    drawCanvas();
+  }
+  function paintAt(pos) {
+    if (!eraseMaskCtx) return;
+    eraseMaskCtx.fillStyle = 'rgba(244,64,64,1)';
+    eraseMaskCtx.beginPath();
+    eraseMaskCtx.arc(pos.x, pos.y, brushPx/2, 0, Math.PI*2);
+    eraseMaskCtx.fill();
+    drawCanvas();
+  }
+  function clearEraseMask() {
+    if (eraseMaskCtx) eraseMaskCtx.clearRect(0,0,eraseMaskCanvas.width,eraseMaskCanvas.height);
+    drawCanvas();
+  }
+  async function runErase() {
+    if (!eraseMaskCtx) return;
+    // 칠한 게 있는지 확인
+    const md = eraseMaskCtx.getImageData(0,0,eraseMaskCanvas.width,eraseMaskCanvas.height).data;
+    let painted = false;
+    for (let i=3; i<md.length; i+=4){ if (md[i]>10){ painted=true; break; } }
+    if (!painted) { alert('지울 부분을 먼저 칠해주세요.'); return; }
+
+    // 깨끗한 원본 사진(오버레이 없이)
+    const imgCvs = document.createElement('canvas');
+    imgCvs.width = canvas.width; imgCvs.height = canvas.height;
+    imgCvs.getContext('2d').drawImage(imgEl, 0, 0, canvas.width, canvas.height);
+    const imageUrl = imgCvs.toDataURL('image/png');
+
+    // 흑백 마스크 (칠한 곳 흰색)
+    const mCvs = document.createElement('canvas');
+    mCvs.width = canvas.width; mCvs.height = canvas.height;
+    const mc = mCvs.getContext('2d');
+    mc.fillStyle = '#000'; mc.fillRect(0,0,mCvs.width,mCvs.height);
+    const src = eraseMaskCtx.getImageData(0,0,mCvs.width,mCvs.height);
+    const out = mc.getImageData(0,0,mCvs.width,mCvs.height);
+    for (let i=0;i<src.data.length;i+=4){
+      const on = src.data[i+3] > 10;
+      out.data[i]=out.data[i+1]=out.data[i+2]= on?255:0; out.data[i+3]=255;
+    }
+    mc.putImageData(out,0,0);
+    const maskUrl = mCvs.toDataURL('image/png');
+
+    const hint = document.getElementById('toolHint');
+    hint.textContent = '🧹 AI가 지우는 중… (10~20초)';
+    try {
+      const res = await fetch('http://localhost:5000/api/erase', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ image: imageUrl, mask: maskUrl })
+      });
+      const j = await res.json();
+      if (!res.ok || j.error) throw new Error(j.error || ('HTTP '+res.status));
+      // 결과를 새 사진으로 교체
+      croppedDataURL = j.image;
+      initCanvas(j.image);
+    } catch(e) {
+      hint.textContent = '지우기 실패';
+      alert('지우기 실패: ' + e.message + '\n(서버 실행 + GEMINI_API_KEY 확인)');
+    }
   }
 
   /* ── 크롭 확정 ── */
@@ -703,6 +824,11 @@
 
   function onPointerDown(e) {
     e.preventDefault();
+    if (mode === 'erase') {
+      if (eraseRectMode) { eraseRectStart = getCanvasPos(e); eraseRectDrag = { x:eraseRectStart.x, y:eraseRectStart.y, w:0, h:0 }; }
+      else { isPainting = true; paintAt(getCanvasPos(e)); }
+      return;
+    }
     isDragging = true;
     dragStart = getCanvasPos(e);
     dragRect  = { x: dragStart.x, y: dragStart.y, w: 0, h: 0 };
@@ -716,6 +842,11 @@
   }
 
   function onPointerMove(e) {
+    if (mode === 'erase') {
+      if (eraseRectMode && eraseRectStart) { e.preventDefault(); const p=getCanvasPos(e); eraseRectDrag.w=p.x-eraseRectStart.x; eraseRectDrag.h=p.y-eraseRectStart.y; drawCanvas(); }
+      else if (isPainting) { e.preventDefault(); paintAt(getCanvasPos(e)); }
+      return;
+    }
     if (!isDragging) return;
     e.preventDefault();
     const pos = getCanvasPos(e);
@@ -725,6 +856,16 @@
   }
 
   function onPointerUp(e) {
+    if (mode === 'erase') {
+      if (eraseRectMode && eraseRectDrag) {
+        const x = eraseRectDrag.w>=0 ? eraseRectDrag.x : eraseRectDrag.x+eraseRectDrag.w;
+        const y = eraseRectDrag.h>=0 ? eraseRectDrag.y : eraseRectDrag.y+eraseRectDrag.h;
+        const w = Math.abs(eraseRectDrag.w), h = Math.abs(eraseRectDrag.h);
+        if (w>4 && h>4 && eraseMaskCtx) { eraseMaskCtx.fillStyle='rgba(244,64,64,1)'; eraseMaskCtx.fillRect(x,y,w,h); }
+        eraseRectDrag = null; eraseRectStart = null; drawCanvas();
+      } else { isPainting = false; }
+      return;
+    }
     if (!isDragging) return;
     isDragging = false;
     const lw = Math.abs(dragRect.w);
@@ -741,6 +882,10 @@
     } else {
       // 간판 영역 확정
       signBoxRatio = lw / lh;
+      // 영역의 위치/크기를 캔버스(=표시 이미지) 대비 0~1 비율로 저장 (합성용)
+      const lx = dragRect.w >= 0 ? dragRect.x : dragRect.x + dragRect.w;
+      const ly = dragRect.h >= 0 ? dragRect.y : dragRect.y + dragRect.h;
+      signBoxFrac = { x: lx/canvas.width, y: ly/canvas.height, w: lw/canvas.width, h: lh/canvas.height };
       const ratioStr = `${(signBoxRatio).toFixed(2)} (${Math.round(lw)} : ${Math.round(lh)})`;
       document.getElementById('boxRatioText').textContent = ratioStr;
       document.getElementById('boxResult').classList.add('show');
@@ -793,15 +938,20 @@
       localStorage.setItem('signSizeMode', 'photo');
       localStorage.removeItem('signWidth');
       localStorage.removeItem('signHeight');
-      // 건물 사진 → Step 4 캔버스용 저장 (크롭했으면 크롭본, 아니면 원본)
+      // 건물 사진 → Step 4 캔버스/합성용 저장 (크롭했으면 크롭본, 아니면 원본)
       const photoToSave = croppedDataURL || photoDataURL;
       try { localStorage.setItem('buildingPhoto', photoToSave); }
       catch(e) { sessionStorage.setItem('buildingPhoto', photoToSave); }
+      // 간판 영역 위치/크기(0~1) 저장 → 합성 위치
+      if (signBoxFrac) localStorage.setItem('signBox', JSON.stringify(signBoxFrac));
     }
-    alert('[Step 4 준비 중]\n' + (activeTab === 1
-      ? `사이즈: ${sizeW} × ${sizeH} cm`
-      : `비율: ${parseFloat(signBoxRatio).toFixed(2)}`));
-    // window.location.href = 'step4-generate.html';
+    // 전면간판 · 채널간판 · 맨벽 → 채널 디자인(step4) 연결
+    if (signType === '전면간판' && signSubType === '채널간판' && installMethod === '맨벽') {
+      window.location.href = 'step4-design.html';
+      return;
+    }
+    // 그 외 조합은 아직 준비 중
+    alert('[' + (signType || '간판') + ' › ' + (signSubType || '') + (installMethod ? ' › ' + installMethod : '') + ']\n이 조합의 디자인 단계는 준비 중이에요.\n(현재 전면간판·채널간판·맨벽 조합만 시안 생성 가능)');
   }
 
   function goTo(url) { window.location.href = url; }

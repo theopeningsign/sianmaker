@@ -1442,8 +1442,98 @@ document.addEventListener('keydown', e => {
   canvas.renderAll(); updateInfo(o);
 });
 
+// ═══════════════════════════════════════════════════════
+//  step3/step4에서 넘어온 건물사진 + 생성된 간판(주/야) 자동 로드
+// ═══════════════════════════════════════════════════════
+const SIGN = { night:null, day:null, obj:null, box:null, mode:'night' };
+let nightOverlay = null;
+
+function fitToBox(img, box) {
+  if (box && box.w) {
+    const scale = (box.w * CW) / img.width;
+    img.scale(scale);
+    img.set({ left: box.x*CW, top: box.y*CH + ((box.h*CH) - img.height*scale)/2 });
+  } else {
+    const scale = (CW * 0.5) / img.width;
+    img.scale(scale);
+    img.set({ left: (CW - img.width*scale)/2, top: (CH - img.height*scale)/2 });
+  }
+}
+
+function ensureOverlay() {
+  if (nightOverlay) return;
+  nightOverlay = new fabric.Rect({ left:0, top:0, width:CW, height:CH,
+    fill:'rgba(10,12,32,0.5)', selectable:false, evented:false, name:'nightOverlay' });
+  canvas.add(nightOverlay);
+}
+
+function applyMode() {
+  ensureOverlay();
+  nightOverlay.set({ width: CW, height: CH, opacity: (SIGN.mode==='night' ? 1 : 0) });
+  if (SIGN.obj) {
+    if (SIGN.mode==='night')
+      SIGN.obj.set('shadow', new fabric.Shadow({ color:'rgba(130,170,255,0.85)', blur:45, offsetX:0, offsetY:0 }));
+    else
+      applyDropShadow(SIGN.obj, shadowOn);
+  }
+  if (bgImage) canvas.sendToBack(bgImage);
+  canvas.bringToFront(nightOverlay);
+  if (SIGN.obj) canvas.bringToFront(SIGN.obj);
+  canvas.renderAll();
+}
+
+function toggleMode() {
+  SIGN.mode = (SIGN.mode==='night' ? 'day' : 'night');
+  const url = (SIGN.mode==='night' ? SIGN.night : SIGN.day);
+  const b = document.getElementById('dnToggle');
+  if (b) b.textContent = (SIGN.mode==='night' ? '🌙 야간 (점등)' : '☀️ 주간 (소등)');
+  if (SIGN.obj && url) {
+    SIGN.obj.setSrc(url, () => { fitToBox(SIGN.obj, SIGN.box); applyMode(); }, { crossOrigin:'anonymous' });
+  } else applyMode();
+}
+
+function addSignAtBox(url, box) {
+  fabric.Image.fromURL(url, img => {
+    if (!img) return;
+    const id = 'sign_' + Date.now();
+    fitToBox(img, box);
+    img.set({ signId: id, name: '간판', lockUniScaling: false });
+    signs.push({ id, label:'간판', colorIdx: colorCursor++ % COLORS.length,
+                 fabricObj: img, visible:true, locked:false, whiteRemoved:false, origURL:url });
+    canvas.add(img); canvas.setActiveObject(img);
+    renderPanel(); updateInfo(img); hideHint();
+    SIGN.obj = img;
+    applyMode();
+  }, { crossOrigin: 'anonymous' });
+}
+
+function initFromWizard() {
+  const bg = localStorage.getItem('buildingPhoto') || sessionStorage.getItem('buildingPhoto');
+  SIGN.night = sessionStorage.getItem('signNight');
+  SIGN.day   = sessionStorage.getItem('signDay');
+  try { SIGN.box = JSON.parse(localStorage.getItem('signBox') || 'null'); } catch(e) {}
+
+  if (SIGN.night || SIGN.day) {
+    const btn = document.createElement('button');
+    btn.id = 'dnToggle'; btn.textContent = '🌙 야간 (점등)';
+    btn.style.cssText = 'position:fixed;top:14px;right:14px;z-index:500;padding:10px 16px;border:none;border-radius:10px;background:#1a1a2e;color:#fff;font-weight:800;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.3);font-family:inherit;';
+    btn.onclick = toggleMode;
+    document.body.appendChild(btn);
+  }
+
+  const first = SIGN.night || SIGN.day;
+  if (bg) {
+    const im = new Image();
+    im.onload = () => { loadBackground(im.src, im); if (first) setTimeout(() => addSignAtBox(first, SIGN.box), 350); };
+    im.src = bg;
+  } else if (first) {
+    addSignFromURL(first);
+  }
+}
+
 // 초기화
 renderPanel();
+initFromWizard();
 </script>
 </body>
 </html>

@@ -36,3 +36,22 @@ npm-debug.log*
 # 임시 파일
 *.tmp
 *.temp
+
+# 생성/테스트 산출물 (개발 중 임시 이미지·로그)
+out_*.png
+gem*.png
+cand_*.png
+fix_*.png
+v2_*.png
+test_*.png
+night.png
+day.png
+control_input.png
+color_input.png
+layout_check.png
+editor_night_preview.png
+erase_out.png
+verify_sign.png
+models.txt
+compile_*.txt
+gem_err.txt

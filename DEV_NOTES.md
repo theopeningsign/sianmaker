@@ -5,6 +5,87 @@
 
 ---
 
+## 2026-06-04 | 실제 건물 검증 성공 + 입력 UI/지우기/시공분기 완성
+
+- **실건물 검증:** 사장님 실제 매장(화강암 벽) 사진으로 "조양권 [로고] 컴퍼니" 생성 → 한글 완벽, 로고 삽입, **맨벽(프레임 패널 없이 벽에 직접)** 확인, 주/야 일치, photoreal. gemini-3-pro-image.
+- **모델:** `gemini-3-pro-image` (한글·품질 최상). 비용은 pro라 1시안(주/야 2장) ~300~500원 추정 → 추후 `gemini-3.1-flash-image` 한글 되는지 테스트해 원가 절감 검토(마진 89% 목표).
+- **시공방법 분기:** server MOUNT 사전(맨벽/전면프레임/프레임바/파사드)으로 프롬프트 분기. step4가 localStorage의 실제 installMethod 사용(하드코딩 제거). → 맨벽이면 백킹 없이, 프레임바면 바 백킹 등.
+- **주/야 위치 일치:** 야간 생성 후 그 이미지를 낮으로 변환(day_from_night)해서 위치/글자/구성 동일.
+- **영역 정확도:** signBox %좌표를 프롬프트에 명시("STRICTLY inside x%~ y%~"), 기존 외부 요소 변경 금지.
+- **기존 간판 지우기(step3):** 🧹 브러시 + ⬜ 사각형 마스크 → /api/erase(Gemini 인페인팅, iopaint 불필요) → 깨끗한 벽. 검증 OK(간판 제거됨).
+- **step4 입력 UI:** 요소 빌더(텍스트/로고 순서·이동/삭제), 글자별 앞면/옆면색(전체동일·글자별), 재질(유광/무광/유백/메탈/도장), 글씨체, 두께, 발광방식(복수), 발광색, 참고이미지, 미리보기 상단고정. **입력 포커스 버그 수정**(input 중 renderAll→포커스/IME 끊김 → oninput은 미리보기만, onchange에 전체갱신).
+- **저장 버튼:** 결과 오버레이에 주/야 PNG 다운로드.
+- **프롬프트 컴파일러(/api/compile, 키 불필요):** 선택값→정밀 영문 프롬프트(한글 원문 따옴표). 검증 완료.
+- **변경 파일:** server.py, step3-size.html, step4-design.html, .env(GEMINI_API_KEY), .claude/settings.local.json.
+
+## 2026-06-04 | ★★★ Gemini 전환 — 한글+사진+건물합성 종단 성공
+
+- **결정적 전환:** Flux/kontext(한글 깨짐) → **Gemini 이미지 모델**로 교체. 사장님이 Gemini 결과물(완벽한 한글 채널간판)을 보여줘서 방향 전환.
+- **모델:** `gemini-3-pro-image` 가 정답. (gemini-2.5-flash-image는 한글 깨짐: 컴퍼니→켬펴비 / 3-pro는 완벽)
+- **Python 3.8이라 SDK 불가** → **Gemini REST API 직접 호출**(requests). v1beta generateContent, responseModalities=[IMAGE].
+- **프롬프트 컴파일러(server.py compile_prompt):** step1~4 선택값 → 정밀 영문 프롬프트(한글 원문 따옴표 유지). 재질/폰트/두께/발광/배치/로고/시공 → 영문 문구 사전 매핑. 색 hex+이름. /api/compile로 키 없이 확인 가능.
+- **생성:** /api/generate = 건물사진+로고+참고 이미지 입력 + 프롬프트 → Gemini가 건물에 간판 통째로 그림 → 주간(소등)+야간(점등) 2장.
+- **검증 결과(gem3_night/day.png):** "클래시 컴퍼니" 한글 완벽, 파랑/빨강 정확, 측면발광 흰색+벽 빛번짐, 진짜 시공 사진 수준. 주/야 둘 다 OK.
+- **입력 UI(step4-design.html):** 요소 빌더(텍스트/로고 순서·이동) + 글자별 앞면/옆면색(전체동일·글자별) + 재질(유광/무광/유백/메탈/도장) + 글씨체 + 두께 + 발광방식(복수) + 발광색 + 참고이미지 + 미리보기 상단고정.
+- **남은 것:** ① 비용(3-pro는 비쌈 → 3.1-flash-image 한글 되는지 비교) ② 위치 이동(하이브리드: 에디터 배치→확정 후 굽기) ③ 다른 간판조합 템플릿.
+- **변경:** server.py(Gemini REST+컴파일러), step4-design.html(세밀 입력+생성연결), .env(GEMINI_API_KEY).
+
+## 2026-06-04 | ★ 전면-채널-맨벽 종단 파이프라인 완성 (작동)
+
+- **한글 깨짐(품→픔) 진짜 원인 = 입력 레이아웃 글로우가 속획 뭉갬.** render_layout을 **글로우 없는 선명 입력**으로 → 품 3/3 정확. 발광은 프롬프트가 담당.
+- **색 정확도:** 프롬프트 COLOR_LOCK("빨강 유지, 주황/노랑으로 안 튀게") → 빨강/파랑 유지.
+- **주/야 2버전:** 같은 선명입력으로 kontext 2회(점등/소등) → signNight/signDay 투명 PNG.
+- **종단:** step3(건물+영역 signBox 저장) → step4(글자·색·발광→생성) → canvas-editor(건물 배경+영역 배치, 주/야 토글=PNG스왑+야간 디밍+글로우, 이동/크기조절).
+- **검증:** editor_night_preview.png = 건물 위 발광 "간판의품격" 시안, 한글 정확. (에디터 캡처는 타임아웃 → eval+합성으로 검증)
+- **변경:** server.py, step4-design.html, canvas-editor.html, step3-size.html, .claude/settings.local.json
+- **남은 튜닝:** 소등 색 일부 회색끼·점등 글로우 강화(작동엔 지장 없음). 실행: python server.py. 생성 1회=kontext 2장≈$0.08.
+
+## 2026-05-29 | ★★ 최종 파이프라인 확정 — kontext 픽셀보존 방식 (검증완료)
+
+- **결정적 결과:** canny는 한글 깨짐(클→몰, dev/pro 둘 다). 순수 프롬프트(ideogram)도 한글 깨짐(콜탬시…). 
+  **flux-kontext-pro(이미지 편집형)** = 글자 픽셀 보존 → 한글 100% + photoreal 달성.
+- **신뢰도 검증:** 4개 이름 연속 성공 — 클래시컴퍼니 / 정직한공인중개사(8자) / 행복한약국 / 쌍쌍불족발(ㅆ+받침多). 전부 정확.
+- **구도 제어:** 프롬프트에 "front view, orthographic, no perspective/tilt, keep layout exact" 넣으면 기울기·크기 변형 잡힘.
+- **확정 파이프라인:**
+  ```
+  PIL/WebGL로 글자 레이아웃(정확한 한글 픽셀+색)
+   → flux-kontext-pro 재질·조명 photoreal化 (정면고정, 검은배경 글자만)
+   → RMBG 누끼 → 투명 PNG
+   → 캔버스에서 건물사진에 위치·크기 잡아 합성 (AI는 위치 안 건드림)
+  ```
+- **도구:** make_color.py(컬러 레이아웃), gen.py(다중모델: kontext/ideogram/imagen/canny). 모델: black-forest-labs/flux-kontext-pro.
+- **비용:** kontext-pro ~$0.04/장 (≈50원) → 1,000원 결제 마진 OK.
+- **다음:** RMBG 누끼→투명PNG 확인 / 건물사진 합성 / 색·시공방식 파라미터화 / 앱 통합.
+
+## 2026-05-29 | ★ Stage3 AI 마감 검증 성공 (핵심 가설 입증, canny — 이후 kontext로 대체됨)
+
+- **결과:** control_input.png("대박치킨" 맑은고딕 흑백 윤곽) → flux-canny-dev → `out_finish_dev_193428.png`.
+- **판정:** ✅ 한글 100% 정확(깨짐 0) + ✅ photoreal(실제 채널간판 사진 수준). **dev 모델·첫 시도**로 달성.
+- **결론:** "폰트로 한글 윤곽 고정(canny) → Flux가 재질·조명만 입힘" 아키텍처 핵심 리스크 **통과**. WebGL "그림"과 차원이 다른 사진 결과.
+- **튜닝 포인트:** 흑백 컨트롤이라 색 정보 없음→Flux가 따뜻한 화이트 기본 선택(프롬프트로 색 지정 필요). 테두리 패널 생성됨(전면프레임 느낌)→맨벽은 프롬프트로 제어.
+- **추가 파일:** make_control.py(한글→canny 컨트롤 PNG), control_input.png.
+- **다음:** 색/시공방식 프롬프트 튜닝, pro 모델 비교, 건물사진 합성.
+
+## 2026-05-29 | Stage3 AI 마감 검증 하네스 (ai_finish_test.py)
+
+- **변경 파일:** `ai_finish_test.py` (신규), `proto-channel.html` (PNG 내보내기 버튼 + preserveDrawingBuffer)
+- **목적:** "그림→사진" 격차를 AI가 메우는지 + 한글 유지되는지 실제 검증.
+- **흐름:** proto-channel.html [PNG 내보내기] → 렌더 PNG → ai_finish_test.py → Replicate flux-canny-dev/pro (canny로 한글 윤곽 고정 + photoreal 재질 입힘) → out_finish_*.png.
+- **보안:** REPLICATE_API_TOKEN은 .env에서만 읽음(코드/깃에 키 없음). 사장님이 직접 .env 설정.
+- **전제:** pip install replicate python-dotenv requests. 카드 등록 필요(Flux는 유료).
+- **대기:** 사장님 토큰 재발급+.env 설정 후 실행. 유료 생성이라 실행 전 승인 받을 것.
+
+## 2026-05-29 | 전면-채널-맨벽 WebGL 프로토타입 (proto-channel.html)
+
+- **변경 파일:** `proto-channel.html` (신규)
+- **목적:** Stage1 절차적 렌더 핵심 리스크("그림 같다" 격차) 조기 검증. CSS 데모 대비 실제 3D가 나은지.
+- **기술:** Three.js 0.160 (ESM importmap) + opentype.js로 한글 폰트(Black Han Sans, jsDelivr) 외곽선 추출 → SVGLoader.createShapes(구멍 처리) → ExtrudeGeometry(압출+베벨) → 면발광(emissive)+UnrealBloomPass + RoomEnvironment(반사) + PointLight(벽 빛번짐) + 그림자.
+- **기능:** 상호명 실시간 입력, 야간점등/주간소등 토글, 5색 변경, OrbitControls 회전/줌. 카메라 자동 fit.
+- **결과:** 한글 깨짐 0%, 실시간·0원. 야간=흰색발광면+빨강글로우+벽반사, 주간=빨간면+어두운금속측면+그림자. CSS 데모보다 확연히 입체·사실적. 단 여전히 "깨끗한 CG/렌더" 느낌 = Stage1 한계 → 실사진 격차는 Stage3 AI 마감+건물합성 몫(예상대로).
+- **수정한 버그:** OrbitControls maxDistance(120)가 카메라 자동fit 거리를 클램프 → 2000으로. 입력창 브라우저 자동완성 → autocomplete off.
+- **잔여 사소버그:** 색상 기본값이 가끔 0(레드) 아닌 값으로 시작(프리뷰 환경 추정). 기능엔 무관.
+- **미커밋 상태** (사장님 "커밋해줘" 대기).
+
 ## 2026-05-29 | 아키텍처 방향 전환 논의 (잠정) + 데모
 
 - **변경 파일:** `demo-sign.html` (신규), `.claude/launch.json` (프리뷰 포트 3031로 변경 — 사장님 3000번 서버와 충돌 방지)

@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 간판 시안 — 채널간판 디자인</title>
+<link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Jua&family=Do+Hyeon&family=Nanum+Myeongjo:wght@800&family=Gaegu&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Pretendard','Apple SD Gothic Neo',sans-serif;background:#f0f2f5;min-height:100vh;display:flex;flex-direction:column;align-items:center;color:#1a1a2e}
+  header{width:100%;background:#fff;border-bottom:1px solid #e0e0e0;padding:16px 32px;display:flex;align-items:center}
+  .logo{font-size:20px;font-weight:800;letter-spacing:-.5px}.logo span{color:#4f6ef7}
+
+  .steps{display:flex;align-items:center;margin:24px auto 0;width:min(560px,90vw)}
+  .step{display:flex;flex-direction:column;align-items:center;gap:5px;flex:1;position:relative}
+  .step:not(:last-child)::after{content:'';position:absolute;top:15px;left:50%;width:100%;height:2px;background:#e0e0e0}
+  .step.done::after{background:#4f6ef7}
+  .step-num{width:30px;height:30px;border-radius:50%;background:#e0e0e0;color:#999;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;position:relative;z-index:1}
+  .step.active .step-num{background:#4f6ef7;color:#fff;box-shadow:0 0 0 4px #dde4ff}
+  .step.done .step-num{background:#4f6ef7;color:#fff}
+  .step-label{font-size:11px;color:#aaa;font-weight:500;white-space:nowrap}
+  .step.active .step-label{color:#4f6ef7;font-weight:700}.step.done .step-label{color:#4f6ef7}.step.done{cursor:pointer}
+
+  main{width:min(820px,96vw);margin:22px auto 80px}
+  .section-title{text-align:center;margin-bottom:20px}
+  .section-title h2{font-size:22px;font-weight:800;letter-spacing:-.5px}
+  .section-title p{font-size:13px;color:#888;margin-top:5px}
+  .back-btn{background:none;border:none;color:#888;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:14px;font-family:inherit}
+  .back-btn:hover{color:#1a1a2e}
+
+  .card{background:#fff;border-radius:16px;padding:20px;box-shadow:0 2px 12px rgba(0,0,0,.06);margin-bottom:16px}
+  /* 미리보기 상단 고정 */
+  .preview-card{position:sticky;top:10px;z-index:50;box-shadow:0 8px 26px rgba(20,20,40,.16);padding:14px 18px}
+  .preview-card .preview{min-height:96px;padding:20px 16px}
+  .card h3{font-size:14px;font-weight:800;margin-bottom:14px;display:flex;align-items:center;gap:7px}
+  .card h3 .n{width:22px;height:22px;border-radius:50%;background:#4f6ef7;color:#fff;font-size:12px;display:inline-flex;align-items:center;justify-content:center}
+  .card h3 .sub{font-size:11px;font-weight:600;color:#aaa;margin-left:auto}
+
+  /* 미리보기 */
+  .preview{border-radius:12px;background:#15151f;padding:30px 16px;text-align:center;overflow:hidden;min-height:120px;display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap}
+  .pv-el{display:inline-flex;align-items:center}
+  .pv-logo{height:54px;border-radius:6px;background:#2a2a38;display:flex;align-items:center;justify-content:center;color:#889;font-size:11px;padding:0 10px}
+  .pv-ch{display:inline-block;font-size:50px;line-height:1.1}
+
+  /* 요소 빌더 */
+  .elist{display:flex;flex-direction:column;gap:10px}
+  .el{border:2px solid #e7e7ee;border-radius:12px;padding:12px;background:#fafafe}
+  .el-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .el-badge{font-size:11px;font-weight:800;padding:3px 8px;border-radius:6px}
+  .el-badge.text{background:#e7edff;color:#3a57e8}
+  .el-badge.logo{background:#ffe9d9;color:#d2691e}
+  .el-move{margin-left:auto;display:flex;gap:4px}
+  .icon-btn{width:26px;height:26px;border:1px solid #ddd;background:#fff;border-radius:7px;cursor:pointer;font-size:13px;line-height:1;color:#666}
+  .icon-btn:hover{border-color:#4f6ef7;color:#4f6ef7}
+  .icon-btn.del:hover{border-color:#e04060;color:#e04060}
+  .el-text-input{width:100%;padding:10px 12px;border:2px solid #e0e0e0;border-radius:9px;font-size:16px;font-weight:700;font-family:inherit;outline:none}
+  .el-text-input:focus{border-color:#4f6ef7}
+
+  .row-lbl{font-size:12px;font-weight:700;color:#777;margin:12px 0 7px}
+  .swrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .swatch-btn{width:38px;height:38px;border-radius:9px;border:2px solid #ddd;cursor:pointer}
+  .swatch-btn.sm{width:34px;height:34px}
+  .mini-lbl{font-size:12px;color:#666;font-weight:600}
+  .letters-grid{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .letter-chip{display:flex;flex-direction:column;align-items:center;gap:5px}
+  .letter-chip .ch{font-size:18px;font-weight:800;font-family:'Black Han Sans'}
+
+  .toggle-row{display:flex;align-items:center;gap:9px;margin:10px 0}
+  .switch{position:relative;width:40px;height:22px;flex-shrink:0;display:inline-block}
+  .switch input{display:none}
+  .switch .sl{position:absolute;inset:0;background:#ccc;border-radius:22px;transition:.2s;cursor:pointer}
+  .switch .sl::before{content:'';position:absolute;width:16px;height:16px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+  .switch input:checked+.sl{background:#4f6ef7}.switch input:checked+.sl::before{transform:translateX(18px)}
+  .toggle-row label{font-size:12px;font-weight:700;cursor:pointer}
+
+  .addbtns{display:flex;gap:8px;margin-top:12px}
+  .add-btn{flex:1;padding:11px;border:2px dashed #c7c7d6;background:#fff;border-radius:10px;font-weight:700;color:#555;cursor:pointer;font-family:inherit;font-size:13px}
+  .add-btn:hover{border-color:#4f6ef7;color:#4f6ef7}
+
+  /* 옵션 칩 그룹 */
+  .opts{display:flex;flex-wrap:wrap;gap:8px}
+  .opt{padding:9px 14px;border:2px solid #e0e0e0;border-radius:10px;font-size:13px;font-weight:700;color:#555;cursor:pointer;background:#fff}
+  .opt:hover{border-color:#b9c4ff}
+  .opt.on{border-color:#4f6ef7;background:#f5f7ff;color:#3a57e8}
+  .opt .d{display:block;font-size:10.5px;font-weight:500;color:#999;margin-top:2px}
+  .opt.on .d{color:#7b8cff}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:600px){.grid2{grid-template-columns:1fr}}
+
+  /* 이미지 업로드 */
+  .upload{border:2px dashed #d0d4dd;border-radius:11px;padding:18px;text-align:center;cursor:pointer;font-size:13px;color:#888}
+  .upload:hover{border-color:#4f6ef7;background:#f5f7ff}
+  .upload img{max-height:80px;border-radius:8px;margin-top:8px}
+  .hidden-file{display:none}
+
+  /* 색상 피커 */
+  .picker-backdrop{position:fixed;inset:0;z-index:90;display:none}.picker-backdrop.on{display:block}
+  .picker{position:absolute;z-index:100;background:#fff;border-radius:14px;box-shadow:0 8px 30px rgba(0,0,0,.28);padding:16px;width:262px;display:none}.picker.on{display:block}
+  .pk-preview{display:flex;align-items:center;gap:10px;margin-bottom:12px}.pk-preview .box{width:38px;height:38px;border-radius:9px;border:1px solid #ddd}.pk-preview code{font-weight:800}
+  .sld-lbl{font-size:11px;font-weight:700;color:#888;display:block;margin-bottom:3px}
+  .sld{-webkit-appearance:none;appearance:none;width:100%;height:15px;border-radius:9px;outline:none;margin:2px 0 12px;cursor:pointer;border:1px solid rgba(0,0,0,.1)}
+  .sld::-webkit-slider-thumb{-webkit-appearance:none;width:19px;height:19px;border-radius:50%;background:#fff;border:3px solid #4f6ef7;cursor:pointer;box-shadow:0 1px 5px rgba(0,0,0,.35)}
+  .hue-sld{background:linear-gradient(to right,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)}
+  .pk-done{width:100%;margin-top:2px;padding:9px;background:#4f6ef7;color:#fff;border:none;border-radius:9px;font-weight:700;font-family:inherit;cursor:pointer}
+
+  .btn-next{display:block;margin:10px auto 0;width:min(360px,86vw);padding:15px;background:#4f6ef7;color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer}
+  .btn-next:hover{background:#3a57e8}
+</style>
+</head>
+<body>
+<header><div class="logo">사인<span>메이커</span> AI</div></header>
+<div class="steps">
+  <div class="step done" onclick="location.href='step1-form.html'"><div class="step-num">1</div><div class="step-label">간판 종류</div></div>
+  <div class="step done" onclick="location.href='step2-material.html'"><div class="step-num">2</div><div class="step-label">상세 종류</div></div>
+  <div class="step done" onclick="location.href='step3-size.html'"><div class="step-num">3</div><div class="step-label">사이즈</div></div>
+  <div class="step active"><div class="step-num">4</div><div class="step-label">디자인 · 시안</div></div>
+</div>
+
+<main>
+  <div class="section-title">
+    <h2>채널간판 디자인</h2>
+    <p>전면간판 · 채널간판 · 맨벽 — 원하는 간판을 세밀하게 설계하면 AI가 그대로 만들어요</p>
+  </div>
+  <button class="back-btn" onclick="location.href='step3-size.html'">← 이전 단계</button>
+
+  <!-- 미리보기 (상단 고정) -->
+  <div class="card preview-card">
+    <h3><span class="n">★</span> 미리보기 <span class="sub">대략적인 구성 (실제 결과는 AI 생성)</span></h3>
+    <div class="preview" id="preview"></div>
+  </div>
+
+  <!-- 1. 간판 구성 -->
+  <div class="card">
+    <h3><span class="n">1</span> 간판 구성 <span class="sub">텍스트·로고를 순서대로</span></h3>
+    <div class="elist" id="elist"></div>
+    <div class="addbtns">
+      <button class="add-btn" onclick="addText()">＋ 텍스트 추가</button>
+      <button class="add-btn" onclick="document.getElementById('logoFile').click()">＋ 로고 추가</button>
+    </div>
+    <input type="file" id="logoFile" class="hidden-file" accept="image/*" onchange="addLogo(event)">
+
+    <div class="row-lbl">배치</div>
+    <div class="opts" id="layoutOpts"></div>
+  </div>
+
+  <!-- 2. 재질 & 폰트 -->
+  <div class="card">
+    <div class="grid2">
+      <div>
+        <h3><span class="n">2</span> 재질 / 마감</h3>
+        <div class="opts" id="materialOpts"></div>
+      </div>
+      <div>
+        <h3><span class="n">3</span> 글씨체 느낌</h3>
+        <div class="opts" id="fontOpts"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. 입체 & 발광 -->
+  <div class="card">
+    <h3><span class="n">4</span> 입체 · 발광</h3>
+    <div class="row-lbl">채널 두께</div>
+    <div class="opts" id="depthOpts"></div>
+    <div class="row-lbl">발광 방식 <span style="font-weight:500;color:#aaa">(복수 선택 · 다시 누르면 해제 · 야간 점등 모습에 반영)</span></div>
+    <div class="opts" id="lightOpts"></div>
+    <div class="row-lbl">발광 색</div>
+    <div class="opts" id="lightColorOpts"></div>
+  </div>
+
+  <!-- 5. 참고 이미지 -->
+  <div class="card">
+    <h3><span class="n">5</span> 참고 이미지 <span class="sub">선택</span></h3>
+    <div class="row-lbl">스타일/재질 참고 이미지 (이런 느낌으로)</div>
+    <div class="upload" id="refUpload" onclick="document.getElementById('refFile').click()">
+      <span id="refText">클릭해서 참고 이미지 업로드 (선택)</span>
+      <div id="refPreview"></div>
+    </div>
+    <input type="file" id="refFile" class="hidden-file" accept="image/*" onchange="onRef(event)">
+  </div>
+
+  <button class="btn-next" onclick="save()">이 디자인으로 시안 만들기 →</button>
+</main>
+
+<!-- 색상 피커 -->
+<div class="picker-backdrop" id="pkBackdrop" onclick="closePicker()"></div>
+<div class="picker" id="picker">
+  <div class="pk-preview"><span class="box" id="pkBox"></span><code id="pkCode">#ffffff</code></div>
+  <label class="sld-lbl">색조</label><input type="range" id="sH" min="0" max="360" value="0" class="sld hue-sld" oninput="onHue()">
+  <label class="sld-lbl">선명도</label><input type="range" id="sS" min="0" max="100" value="80" class="sld" oninput="onSlide()">
+  <label class="sld-lbl">밝기 (옅은 ↔ 진한)</label><input type="range" id="sL" min="0" max="100" value="50" class="sld" oninput="onSlide()">
+  <button class="pk-done" onclick="closePicker()">완료</button>
+</div>
+
+<script>
+  // ── 옵션 정의 ──
+  const LAYOUTS = [{id:'horizontal',t:'가로 한 줄'},{id:'twoline',t:'두 줄'},{id:'vertical',t:'세로'}];
+  const MATERIALS = [
+    {id:'acrylic_glossy',t:'유광 아크릴',d:'매끈하고 광택'},
+    {id:'acrylic_matte',t:'무광 아크릴',d:'차분한 무광'},
+    {id:'acrylic_milky',t:'유백 아크릴',d:'은은한 균일 발광'},
+    {id:'metal',t:'메탈(스테인리스)',d:'무점등·고급 메탈'},
+    {id:'paint',t:'컬러 도장',d:'페인트 마감'},
+  ];
+  const FONTS = [
+    {id:'gothic_bold',t:'굵은 고딕',f:"'Black Han Sans'"},
+    {id:'gothic_round',t:'둥근 고딕',f:"'Jua'"},
+    {id:'gothic_basic',t:'기본 고딕',f:"'Do Hyeon'"},
+    {id:'myeongjo',t:'명조(세리프)',f:"'Nanum Myeongjo'"},
+    {id:'hand',t:'손글씨',f:"'Gaegu'"},
+  ];
+  const DEPTHS = [{id:'thin',t:'얇음'},{id:'normal',t:'보통'},{id:'thick',t:'두꺼움'},{id:'xthick',t:'매우 두꺼움'}];
+  const LIGHTS = [
+    {id:'front',t:'전면채널',d:'앞면 발광'},
+    {id:'side',t:'측면발광',d:'옆면(두께) 발광'},
+    {id:'halo',t:'후광채널',d:'뒤 후광'},
+  ];
+  const LIGHTCOLORS = [{id:'same',t:'면색과 동일'},{id:'white',t:'흰색'},{id:'custom',t:'직접 선택'}];
+  const LOGO_TREAT = [{id:'asis',t:'원본 그대로',d:'평면 인쇄'},{id:'channel',t:'입체 채널',d:'글자처럼 입체'},{id:'metal',t:'금속 입체',d:'메탈 가공'}];
+  const LOGO_SIZE  = [{id:'small',t:'작게'},{id:'normal',t:'보통'},{id:'large',t:'크게'}];
+  const LOGO_COLOR = [{id:'original',t:'원본 색 유지'},{id:'mono',t:'단색(직접 선택)'}];
+
+  // ── 상태 ──
+  let state = {
+    elements: [ mkText('클래시'), mkText('컴퍼니') ],
+    layout: 'horizontal',
+    material: 'acrylic_glossy',
+    font: 'gothic_bold',
+    depth: 'normal',
+    lightings: [],
+    lightColor: 'same',
+    lightColorHex: '#ffffff',
+    refImage: null,
+  };
+  function mkText(t){ return { type:'text', text:t, faceSame:true, faceMaster:'#ff3b3b', faceColors:[], sideSame:true, sideMaster:'#ffffff', sideColors:[] }; }
+
+  const isSpace = c=>/\s/.test(c);
+  function hslToHex(h,s,l){s/=100;l/=100;const k=n=>(n+h/30)%12,a=s*Math.min(l,1-l);const f=n=>{const c=l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1)));return Math.round(255*c).toString(16).padStart(2,'0')};return`#${f(0)}${f(8)}${f(4)}`}
+  function hexToHsl(hex){let r=parseInt(hex.slice(1,3),16)/255,g=parseInt(hex.slice(3,5),16)/255,b=parseInt(hex.slice(5,7),16)/255;const mx=Math.max(r,g,b),mn=Math.min(r,g,b);let h,s,l=(mx+mn)/2;if(mx===mn){h=s=0}else{const d=mx-mn;s=l>.5?d/(2-mx-mn):d/(mx+mn);switch(mx){case r:h=(g-b)/d+(g<b?6:0);break;case g:h=(b-r)/d+2;break;default:h=(r-g)/d+4}h*=60}return{h:Math.round(h),s:Math.round(s*100),l:Math.round(l*100)}}
+  function fontOf(){ return (FONTS.find(f=>f.id===state.font)||FONTS[0]).f; }
+
+  // ── 렌더 ──
+  function renderAll(){ syncColors(); renderElements(); renderPreview(); }
+
+  function syncColors(){
+    state.elements.forEach(el=>{
+      if(el.type!=='text') return;
+      const n=[...el.text].length;
+      el.faceColors=Array.from({length:n},(_,i)=>el.faceColors[i]||el.faceMaster);
+      el.sideColors=Array.from({length:n},(_,i)=>el.sideColors[i]||el.sideMaster);
+    });
+  }
+  function faceOf(el,i){ return el.faceSame?el.faceMaster:(el.faceColors[i]||el.faceMaster); }
+  function sideOf(el,i){ return el.sideSame?el.sideMaster:(el.sideColors[i]||el.sideMaster); }
+
+  function renderPreview(){
+    const pv=document.getElementById('preview'); pv.innerHTML='';
+    const lit=state.lightings.length>0;
+    state.elements.forEach(el=>{
+      const wrap=document.createElement('span'); wrap.className='pv-el';
+      if(el.type==='logo'){
+        const l=document.createElement('img'); l.className='pv-logo-img'; l.src=el.img; l.style.height='54px'; l.style.borderRadius='6px';
+        wrap.appendChild(l);
+      } else {
+        [...el.text].forEach((c,i)=>{
+          if(isSpace(c)){ const sp=document.createElement('span'); sp.style.display='inline-block'; sp.style.width='.4em'; wrap.appendChild(sp); return; }
+          const s=document.createElement('span'); s.className='pv-ch'; s.textContent=c; s.style.fontFamily=fontOf();
+          const face=faceOf(el,i), side=sideOf(el,i);
+          s.style.color=face;
+          let sh=[`1px 1px 0 ${side}`,`2px 2px 0 ${side}`,`3px 3px 0 ${side}`,`4px 4px 0 ${side}`,`5px 5px 4px rgba(0,0,0,.4)`];
+          const gc = state.lightColor==='white'?'#ffffff':(state.lightColor==='custom'?state.lightColorHex:null);
+          if(state.lightings.includes('front')) sh.push(`0 0 10px ${gc||face}`,`0 0 22px ${gc||face}aa`);
+          if(state.lightings.includes('side'))  sh.push(`0 0 12px ${gc||side}`,`0 0 22px ${gc||side}cc`);
+          if(state.lightings.includes('halo'))  sh.push(`0 0 22px ${gc||side}`,`0 0 44px ${gc||side}`);
+          s.style.textShadow=sh.join(',');
+          wrap.appendChild(s);
+        });
+      }
+      pv.appendChild(wrap);
+    });
+    if(!state.elements.length) pv.innerHTML='<span style="color:#667;font-size:13px">구성을 추가하세요</span>';
+  }
+
+  function renderElements(){
+    const box=document.getElementById('elist'); box.innerHTML='';
+    state.elements.forEach((el,ei)=>{
+      const card=document.createElement('div'); card.className='el';
+      const head=document.createElement('div'); head.className='el-head';
+      head.innerHTML=`<span class="el-badge ${el.type}">${el.type==='text'?'텍스트':'로고'}</span>`;
+      const mv=document.createElement('div'); mv.className='el-move';
+      mv.innerHTML=`<button class="icon-btn" ${ei===0?'disabled':''} onclick="moveEl(${ei},-1)">▲</button>
+                    <button class="icon-btn" ${ei===state.elements.length-1?'disabled':''} onclick="moveEl(${ei},1)">▼</button>
+                    <button class="icon-btn del" onclick="delEl(${ei})">✕</button>`;
+      head.appendChild(mv); card.appendChild(head);
+
+      if(el.type==='text'){
+        const inp=document.createElement('input'); inp.className='el-text-input'; inp.value=el.text; inp.maxLength=12; inp.placeholder='글자 입력';
+        // 입력 중엔 미리보기만 갱신(포커스/한글조합 유지), 칸 벗어날 때 전체 갱신
+        inp.oninput=e=>{ el.text=e.target.value; syncColors(); renderPreview(); };
+        inp.onchange=e=>{ el.text=e.target.value; renderAll(); };
+        card.appendChild(inp);
+
+        // 앞면색
+        card.appendChild(colorBlock(el,'face','앞면 색상'));
+        // 옆면색
+        card.appendChild(colorBlock(el,'side','옆면(측면) 색상'));
+      } else {
+        const im=document.createElement('img'); im.src=el.img; im.style.maxHeight='64px'; im.style.borderRadius='8px'; im.style.marginTop='4px'; im.style.display='block';
+        card.appendChild(im);
+        const t1=document.createElement('div'); t1.className='row-lbl'; t1.textContent='로고 표현 방식'; card.appendChild(t1);
+        card.appendChild(inlineChips(LOGO_TREAT, el.treat, id=>{el.treat=id;renderAll();}));
+        const t2=document.createElement('div'); t2.className='row-lbl'; t2.textContent='로고 크기'; card.appendChild(t2);
+        card.appendChild(inlineChips(LOGO_SIZE, el.size, id=>{el.size=id;renderAll();}));
+        const t3=document.createElement('div'); t3.className='row-lbl'; t3.textContent='로고 색상'; card.appendChild(t3);
+        card.appendChild(inlineChips(LOGO_COLOR, el.colorMode, id=>{el.colorMode=id;renderElements();renderPreview();if(id==='mono'){const lc=card.querySelector('.logo-color-sw'); if(lc) openPicker(lc,{logoEl:el});}}));
+        if(el.colorMode==='mono'){
+          const sr=document.createElement('div'); sr.className='swrow'; sr.style.marginTop='6px';
+          const b=document.createElement('button'); b.className='swatch-btn sm logo-color-sw'; b.style.background=el.color;
+          b.onclick=()=>openPicker(b,{logoEl:el});
+          const tt=document.createElement('span'); tt.className='mini-lbl'; tt.textContent='단색 색상';
+          sr.appendChild(b); sr.appendChild(tt); card.appendChild(sr);
+        }
+      }
+      box.appendChild(card);
+    });
+  }
+
+  function colorBlock(el, kind, title){
+    const wrap=document.createElement('div');
+    const lbl=document.createElement('div'); lbl.className='row-lbl'; lbl.textContent=title; wrap.appendChild(lbl);
+    // 토글
+    const tr=document.createElement('div'); tr.className='toggle-row';
+    const sameKey=kind+'Same';
+    tr.innerHTML=`<label class="switch"><input type="checkbox" ${el[sameKey]?'checked':''}><span class="sl"></span></label><label>모든 글자 같은 색</label>`;
+    tr.querySelector('input').onchange=e=>{ el[sameKey]=e.target.checked; renderAll(); };
+    wrap.appendChild(tr);
+    if(el[sameKey]){
+      const sr=document.createElement('div'); sr.className='swrow';
+      const b=document.createElement('button'); b.className='swatch-btn'; b.style.background=el[kind+'Master'];
+      b.onclick=()=>openPicker(b,{el,kind,mode:'master'});
+      sr.appendChild(b); const t=document.createElement('span'); t.className='mini-lbl'; t.textContent='클릭해서 선택'; sr.appendChild(t);
+      wrap.appendChild(sr);
+    } else {
+      const g=document.createElement('div'); g.className='letters-grid';
+      [...el.text].forEach((c,i)=>{
+        if(isSpace(c)) return;
+        const ch=document.createElement('div'); ch.className='letter-chip';
+        const cc=document.createElement('div'); cc.className='ch'; cc.textContent=c; cc.style.fontFamily=fontOf();
+        const b=document.createElement('button'); b.className='swatch-btn sm'; b.style.background=(kind==='face'?faceOf(el,i):sideOf(el,i));
+        b.onclick=()=>openPicker(b,{el,kind,mode:'letter',idx:i});
+        ch.appendChild(cc); ch.appendChild(b); g.appendChild(ch);
+      });
+      wrap.appendChild(g);
+    }
+    return wrap;
+  }
+
+  // ── 요소 조작 ──
+  function addText(){ state.elements.push(mkText('텍스트')); renderAll(); }
+  function addLogo(e){ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=ev=>{ state.elements.push({type:'logo',img:ev.target.result,treat:'asis',size:'normal',colorMode:'original',color:'#ffffff'}); renderAll(); }; r.readAsDataURL(f); e.target.value=''; }
+  // 요소 카드 안 인라인 칩
+  function inlineChips(items, current, onPick){
+    const w=document.createElement('div'); w.className='opts'; w.style.marginTop='6px';
+    items.forEach(o=>{ const d=document.createElement('div'); d.className='opt'+(current===o.id?' on':''); d.style.padding='7px 11px'; d.style.fontSize='12px';
+      d.innerHTML=o.t+(o.d?`<span class="d">${o.d}</span>`:''); d.onclick=()=>onPick(o.id); w.appendChild(d); });
+    return w;
+  }
+  function moveEl(i,d){ const j=i+d; if(j<0||j>=state.elements.length)return; const a=state.elements; [a[i],a[j]]=[a[j],a[i]]; renderAll(); }
+  function delEl(i){ state.elements.splice(i,1); renderAll(); }
+
+  // ── 옵션 칩 렌더 ──
+  function chipGroup(containerId, items, getSel, onPick, multi){
+    const c=document.getElementById(containerId); c.innerHTML='';
+    items.forEach(o=>{
+      const d=document.createElement('div');
+      const on = multi ? getSel().includes(o.id) : getSel()===o.id;
+      d.className='opt'+(on?' on':'');
+      d.innerHTML = o.t + (o.d?`<span class="d">${o.d}</span>`:'');
+      d.onclick=()=>onPick(o.id);
+      c.appendChild(d);
+    });
+  }
+  function renderOpts(){
+    chipGroup('layoutOpts',LAYOUTS,()=>state.layout,id=>{state.layout=id;renderOpts();renderPreview();});
+    chipGroup('materialOpts',MATERIALS,()=>state.material,id=>{state.material=id;renderOpts();});
+    chipGroup('fontOpts',FONTS,()=>state.font,id=>{state.font=id;renderOpts();renderAll();});
+    chipGroup('depthOpts',DEPTHS,()=>state.depth,id=>{state.depth=id;renderOpts();});
+    chipGroup('lightOpts',LIGHTS,()=>state.lightings,id=>{const i=state.lightings.indexOf(id);if(i>=0)state.lightings.splice(i,1);else state.lightings.push(id);renderOpts();renderPreview();},true);
+    chipGroup('lightColorOpts',LIGHTCOLORS,()=>state.lightColor,id=>{state.lightColor=id;renderOpts();renderPreview();if(id==='custom'){const fake=document.getElementById('lightColorOpts').lastChild;openPicker(fake,{lightcolor:true});}});
+  }
+
+  // ── 참고 이미지 ──
+  function onRef(e){ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=ev=>{ state.refImage=ev.target.result; document.getElementById('refText').textContent='참고 이미지 (클릭해서 변경)'; document.getElementById('refPreview').innerHTML=`<img src="${ev.target.result}">`; }; r.readAsDataURL(f); e.target.value=''; }
+
+  // ── 색상 피커 ──
+  let pk=null;
+  function openPicker(anchor,target){
+    pk=target;
+    const el=document.getElementById('picker'),bd=document.getElementById('pkBackdrop');
+    bd.classList.add('on');el.classList.add('on');
+    const r=anchor.getBoundingClientRect();let left=r.left+scrollX,top=r.bottom+scrollY+8;
+    if(left+262>innerWidth)left=innerWidth-272; if(top+260>scrollY+innerHeight) top=r.top+scrollY-268;
+    el.style.left=left+'px';el.style.top=Math.max(scrollY+8,top)+'px';
+    const cur=curColor();const{h,s,l}=hexToHsl(cur);
+    document.getElementById('sH').value=h;document.getElementById('sS').value=s;document.getElementById('sL').value=l;
+    updBg(h,s,l);setPk(cur);
+  }
+  function closePicker(){document.getElementById('picker').classList.remove('on');document.getElementById('pkBackdrop').classList.remove('on');pk=null;}
+  function curColor(){
+    if(!pk)return'#ffffff';
+    if(pk.logoEl)return pk.logoEl.color;
+    if(pk.lightcolor)return state.lightColorHex;
+    if(pk.mode==='master')return pk.el[pk.kind+'Master'];
+    return (pk.kind==='face'?pk.el.faceColors[pk.idx]:pk.el.sideColors[pk.idx])||pk.el[pk.kind+'Master'];
+  }
+  function onHue(){const sE=document.getElementById('sS'),lE=document.getElementById('sL');if(+sE.value<8)sE.value=78;if(+lE.value>92||+lE.value<8)lE.value=50;onSlide();}
+  function onSlide(){const h=+document.getElementById('sH').value,s=+document.getElementById('sS').value,l=+document.getElementById('sL').value;const hex=hslToHex(h,s,l);updBg(h,s,l);setPk(hex);applyColor(hex);}
+  function updBg(h,s,l){document.getElementById('sS').style.background=`linear-gradient(to right,${hslToHex(h,0,l)},${hslToHex(h,100,l)})`;document.getElementById('sL').style.background=`linear-gradient(to right,#000,${hslToHex(h,s,50)},#fff)`;}
+  function setPk(hex){document.getElementById('pkBox').style.background=hex;document.getElementById('pkCode').textContent=hex;}
+  function applyColor(hex){
+    if(!pk)return;
+    if(pk.logoEl){ pk.logoEl.color=hex; renderElements(); renderPreview(); return; }
+    if(pk.lightcolor){ state.lightColorHex=hex; renderPreview(); return; }
+    if(pk.mode==='master'){ pk.el[pk.kind+'Master']=hex; if(pk.el[pk.kind+'Same']){ const k=pk.kind+'Colors'; pk.el[k]=pk.el[k].map(()=>hex); } }
+    else { (pk.kind==='face'?pk.el.faceColors:pk.el.sideColors)[pk.idx]=hex; }
+    renderAll();
+  }
+
+  // ── 결과 오버레이 ──
+  const RESULT={day:null,night:null,mode:'night'};
+  function resBtn(m){const on=RESULT.mode===m;return`padding:10px 18px;border:none;border-radius:10px;background:${on?'#4f6ef7':'#2a2a3a'};color:#fff;font-weight:700;cursor:pointer;font-family:inherit`;}
+  window.setRes=function(m){RESULT.mode=m;genOverlay('done');};
+  function genOverlay(s,err){
+    let ov=document.getElementById('genOv');
+    if(!ov){ov=document.createElement('div');ov.id='genOv';ov.style.cssText='position:fixed;inset:0;z-index:400;background:rgba(8,8,14,.92);display:flex;align-items:center;justify-content:center;padding:20px';document.body.appendChild(ov);}
+    if(s==='loading'){
+      ov.innerHTML='<div style="text-align:center;color:#fff"><div style="width:46px;height:46px;border:4px solid rgba(255,255,255,.2);border-top-color:#6f8cff;border-radius:50%;margin:0 auto 16px;animation:sp 1s linear infinite"></div><div style="font-weight:700">AI가 시안 생성 중…</div><div style="font-size:12px;color:#9aa;margin-top:6px">주간·야간 2장 (20~40초)</div></div><style>@keyframes sp{to{transform:rotate(360deg)}}</style>';
+    }else if(s==='done'){
+      const img=RESULT.mode==='night'?RESULT.night:RESULT.day;
+      ov.innerHTML=`<div style="max-width:880px;width:100%;text-align:center"><img src="${img}" style="max-width:100%;max-height:66vh;border-radius:14px;box-shadow:0 10px 40px rgba(0,0,0,.6)"><div style="margin-top:14px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><button onclick="setRes('night')" style="${resBtn('night')}">🌙 야간(점등)</button><button onclick="setRes('day')" style="${resBtn('day')}">☀️ 주간(소등)</button><a href="${img}" download="간판시안_${RESULT.mode==='night'?'야간':'주간'}.png" style="padding:10px 18px;border:none;border-radius:10px;background:#27c06b;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;text-decoration:none">💾 저장</a><button onclick="document.getElementById('genOv').remove()" style="padding:10px 18px;border:none;border-radius:10px;background:#fff;color:#1a1a2e;font-weight:700;cursor:pointer;font-family:inherit">닫기</button></div></div>`;
+    }else{
+      ov.innerHTML=`<div style="text-align:center;color:#fff;max-width:460px"><div style="font-size:38px">⚠️</div><div style="font-weight:700;margin:10px 0">생성 실패</div><div style="font-size:13px;color:#f9a;line-height:1.6;word-break:break-all">${(err||'').replace(/</g,'&lt;')}</div><div style="font-size:12px;color:#9aa;margin-top:12px">서버 실행 + .env의 GEMINI_API_KEY 확인 후 다시 시도하세요.</div><button onclick="document.getElementById('genOv').remove()" style="margin-top:14px;padding:10px 18px;border:none;border-radius:10px;background:#fff;color:#1a1a2e;font-weight:700;cursor:pointer;font-family:inherit">닫기</button></div>`;
+    }
+  }
+
+  // ── 저장 + 생성 ──
+  async function save(){
+    syncColors();
+    const elements = state.elements.map(el=>{
+      if(el.type==='logo') return {type:'logo', img:el.img, treat:el.treat, size:el.size, colorMode:el.colorMode, color:el.colorMode==='mono'?el.color:null};
+      const chars=[...el.text];
+      return { type:'text', text:el.text,
+        faceColors: chars.map((c,i)=>isSpace(c)?null:faceOf(el,i)),
+        sideColors: chars.map((c,i)=>isSpace(c)?null:sideOf(el,i)) };
+    });
+    const data = {
+      signType: localStorage.getItem('signType') || '전면간판',
+      signSubType: localStorage.getItem('signSubType') || '채널간판',
+      installMethod: localStorage.getItem('installMethod') || '맨벽',
+      elements, layout:state.layout, material:state.material, font:state.font,
+      depth:state.depth, lightings:state.lightings,
+      lightColor: state.lightColor==='custom'?state.lightColorHex:state.lightColor,
+      refImage: state.refImage,
+    };
+    // 건물사진 + 영역 추가 (Gemini가 이 사진을 편집)
+    let signBox=null; try{ signBox=JSON.parse(localStorage.getItem('signBox')||'null'); }catch(e){}
+    data.buildingPhoto = localStorage.getItem('buildingPhoto') || sessionStorage.getItem('buildingPhoto') || null;
+    data.signBox = signBox;
+    try{ localStorage.setItem('channelDesign', JSON.stringify({...data, buildingPhoto:'(stored separately)'})); }catch(e){}
+    if(!data.buildingPhoto){ alert('건물 사진이 없어요.\nstep3에서 "잘 모르겠어요" 탭으로 건물 사진을 올리고 영역을 지정해주세요.'); return; }
+    genOverlay('loading');
+    try{
+      const res=await fetch('http://localhost:5000/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+      const j=await res.json();
+      if(!res.ok||j.error) throw new Error(j.error||('HTTP '+res.status));
+      RESULT.night=j.night; RESULT.day=j.day; RESULT.mode='night';
+      genOverlay('done');
+    }catch(e){ genOverlay('error', e.message); }
+  }
+
+  // 초기화
+  renderOpts(); renderAll();
+</script>
+</body>
+</html>

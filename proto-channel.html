@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>전면 채널간판 WebGL 프로토타입</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html,body { height:100%; background:#0a0a0d; font-family:'Pretendard','Apple SD Gothic Neo',sans-serif; color:#e8e8ee; overflow:hidden; }
+  #app { position:fixed; inset:0; }
+  canvas { display:block; }
+
+  .panel {
+    position:fixed; top:14px; left:14px; z-index:10;
+    background:rgba(18,19,26,.86); backdrop-filter:blur(8px);
+    border:1px solid #2a2c36; border-radius:14px; padding:14px 16px;
+    width:248px; font-size:13px;
+  }
+  .panel h1 { font-size:14px; font-weight:800; letter-spacing:-.3px; margin-bottom:2px; }
+  .panel .sub { font-size:11px; color:#8a8a99; margin-bottom:12px; }
+  .row { margin-bottom:11px; }
+  .row label { display:block; font-size:11px; font-weight:700; color:#9aa; margin-bottom:5px; }
+  .row input[type=text] {
+    width:100%; padding:8px 10px; border-radius:8px; border:1px solid #333; background:#101117;
+    color:#fff; font-family:inherit; font-size:14px; font-weight:700;
+  }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; }
+  .chip {
+    padding:6px 10px; border-radius:7px; border:1px solid #333; background:#101117;
+    color:#bbb; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit;
+  }
+  .chip.on { border-color:#6f8cff; background:#6f8cff; color:#fff; }
+  .colorrow { display:flex; gap:6px; }
+  .sw { width:26px; height:26px; border-radius:50%; cursor:pointer; border:2px solid #2a2c36; }
+  .sw.on { border-color:#fff; }
+  .hint { font-size:10.5px; color:#777; margin-top:8px; line-height:1.5; }
+  #status { position:fixed; bottom:14px; left:50%; transform:translateX(-50%); z-index:10;
+    font-size:12px; color:#9aa; background:rgba(18,19,26,.8); padding:6px 14px; border-radius:20px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<div class="panel">
+  <h1>전면 채널간판 · 맨벽</h1>
+  <div class="sub">WebGL 절차적 렌더 (한글=폰트, AI 미사용)</div>
+
+  <div class="row">
+    <label>상호명</label>
+    <input type="text" id="txt" value="대박치킨" maxlength="8" autocomplete="off" autocorrect="off" spellcheck="false">
+  </div>
+
+  <div class="row">
+    <label>점등</label>
+    <div class="chips">
+      <button class="chip on" data-lit="night" onclick="setLit('night')">야간 점등</button>
+      <button class="chip" data-lit="day" onclick="setLit('day')">주간 소등</button>
+    </div>
+  </div>
+
+  <div class="row">
+    <label>색상</label>
+    <div class="colorrow" id="colors"></div>
+  </div>
+
+  <div class="row" style="margin-top:14px;">
+    <button class="chip" style="width:100%;text-align:center;border-color:#6f8cff;color:#cdd6ff;" onclick="exportPNG()">PNG 내보내기 (AI 마감용)</button>
+  </div>
+
+  <div class="hint">드래그로 회전 · 휠로 줌<br>※ Stage1 검증용. 사진 마감(Stage3)은 별도.</div>
+</div>
+
+<div id="status">로딩 중…</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.min.js"></script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { SVGLoader } from 'three/addons/loaders/SVGLoader.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const FONT_URL = 'https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/blackhansans/BlackHanSans-Regular.ttf';
+const COLORS = [
+  { name:'레드',  face:'#ff3b3b', glow:'#ff5a5a' },
+  { name:'블루',  face:'#2e7bff', glow:'#5a9bff' },
+  { name:'화이트',face:'#ffffff', glow:'#fff4e0' },
+  { name:'그린',  face:'#27d07a', glow:'#5affa0' },
+  { name:'옐로우',face:'#ffd21e', glow:'#ffe46a' },
+];
+
+let scene, camera, renderer, composer, controls, bloomPass, spill;
+let font = null;
+let lettersGroup = null;
+let wallMesh;
+let state = { text:'대박치킨', lit:'night', color:0 };
+window.__state = state;
+
+const statusEl = document.getElementById('status');
+
+init();
+
+async function init() {
+  const app = document.getElementById('app');
+  scene = new THREE.Scene();
+
+  camera = new THREE.PerspectiveCamera(38, window.innerWidth/window.innerHeight, 0.1, 1000);
+  camera.position.set(0, 0, 58);
+
+  renderer = new THREE.WebGLRenderer({ antialias:true, preserveDrawingBuffer:true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  app.appendChild(renderer.domElement);
+
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.minDistance = 40; controls.maxDistance = 2000;
+  controls.target.set(0,0,0);
+
+  // ── 환경맵 (반사 → CG 티 제거 핵심) ──
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+  // ── 벽 (맨벽) ──
+  const wallTex = makeWallTexture();
+  wallMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(1600, 1000),
+    new THREE.MeshStandardMaterial({ map:wallTex, roughness:.95, metalness:0 })
+  );
+  wallMesh.position.z = -14;
+  wallMesh.receiveShadow = true;
+  scene.add(wallMesh);
+
+  // 야간 빛 번짐(간판→벽 반사광)
+  spill = new THREE.PointLight(0xff5a5a, 0, 400, 1.4);
+  spill.position.set(0, 0, 10);
+  scene.add(spill);
+
+  // ── 조명 ──
+  scene.add(new THREE.AmbientLight(0xffffff, .25));
+  const key = new THREE.DirectionalLight(0xffffff, .6);
+  key.position.set(-20, 25, 40); key.castShadow = true;
+  key.shadow.mapSize.set(2048,2048);
+  key.shadow.camera.left=-60; key.shadow.camera.right=60;
+  key.shadow.camera.top=60; key.shadow.camera.bottom=-60;
+  key.shadow.bias = -0.0005;
+  scene.add(key);
+  scene.add(new THREE.HemisphereLight(0x8899ff, 0x080808, .3));
+
+  // ── post (bloom) ──
+  composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.7, 0.6, 0.2);
+  composer.addPass(bloomPass);
+
+  buildColorSwatches();
+  window.addEventListener('resize', onResize);
+  document.getElementById('txt').addEventListener('input', e=>{
+    state.text = e.target.value || ' ';
+    rebuildLetters();
+  });
+
+  // ── 폰트 로드 ──
+  statusEl.textContent = '한글 폰트 로딩 중…';
+  try {
+    const buf = await fetch(FONT_URL).then(r=>r.arrayBuffer());
+    font = opentype.parse(buf);
+    statusEl.textContent = '렌더 완료 — 드래그로 회전';
+  } catch(err) {
+    statusEl.textContent = '폰트 로드 실패: ' + err.message;
+    console.error(err);
+    return;
+  }
+  rebuildLetters();
+  applyLit();
+  animate();
+}
+
+// 한글 텍스트 → 압출 지오메트리 그룹
+function rebuildLetters() {
+  if (!font) return;
+  if (lettersGroup) { scene.remove(lettersGroup); disposeGroup(lettersGroup); }
+  lettersGroup = new THREE.Group();
+
+  const size = 72;
+  const otPath = font.getPath(state.text, 0, 0, size);
+  const svgPathData = otPath.toPathData(3);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg"><path d="${svgPathData}"/></svg>`;
+
+  const loader = new SVGLoader();
+  const parsed = loader.parse(svg);
+  const shapes = [];
+  parsed.paths.forEach(p => {
+    SVGLoader.createShapes(p).forEach(s => shapes.push(s));
+  });
+
+  const col = COLORS[state.color];
+  const faceMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(col.face),
+    emissive: new THREE.Color(col.glow),
+    emissiveIntensity: 0,         // applyLit에서 조절
+    roughness:.35, metalness:.0,
+  });
+  const sideMat = new THREE.MeshStandardMaterial({
+    color:0x202024, roughness:.5, metalness:.6,   // 채널 측면(리턴) = 어두운 금속
+  });
+
+  const geom = new THREE.ExtrudeGeometry(shapes, {
+    depth: 12, bevelEnabled:true, bevelThickness:1.2, bevelSize:1.0, bevelSegments:2,
+  });
+  geom.scale(1, -1, 1);          // SVG y-down → three y-up
+  geom.computeVertexNormals();
+  geom.center();
+
+  const mesh = new THREE.Mesh(geom, [faceMat, sideMat]);
+  mesh.castShadow = true;
+  mesh.position.z = 6;           // 벽에서 띄움(스페이서)
+  lettersGroup.add(mesh);
+  lettersGroup.userData.faceMat = faceMat;
+
+  geom.computeBoundingBox();
+  const bb = geom.boundingBox;
+  lettersGroup.userData.w = bb.max.x - bb.min.x;
+  lettersGroup.userData.h = bb.max.y - bb.min.y;
+
+  scene.add(lettersGroup);
+  fitCamera();
+  applyLit();
+}
+
+// 글자 전체가 화면에 들어오도록 카메라 거리 자동 조정
+function fitCamera() {
+  if (!lettersGroup) return;
+  const W = lettersGroup.userData.w, H = lettersGroup.userData.h;
+  const vFOV = THREE.MathUtils.degToRad(camera.fov);
+  const aspect = camera.aspect;
+  const hFOV = 2 * Math.atan(Math.tan(vFOV/2) * aspect);
+  const distV = (H/2) / Math.tan(vFOV/2);
+  const distH = (W/2) / Math.tan(hFOV/2);
+  const dist = Math.max(distV, distH) * 1.35 + 6;
+  // 살짝 비스듬히 → 채널 측면 두께가 보여 입체감 ↑
+  camera.position.set(dist*0.26, dist*0.13, dist*0.92);
+  controls.target.set(0, 0, 4);
+  controls.update();
+  window.__fit = { W, H, aspect, dist, camZ: camera.position.z };
+}
+window.__camInfo = () => window.__fit;
+
+function applyLit() {
+  if (!lettersGroup) return;
+  const fm = lettersGroup.userData.faceMat;
+  const night = state.lit === 'night';
+  const col = COLORS[state.color];
+  fm.emissiveIntensity = night ? 1.35 : 0.04;
+  if (bloomPass) bloomPass.strength = night ? 0.85 : 0.12;
+  // 간판→벽 빛번짐
+  if (spill) {
+    spill.color.set(col.glow);
+    spill.intensity = night ? 2.6 : 0;
+  }
+  // 야간엔 배경 어둡게, 주간엔 밝게
+  scene.background = new THREE.Color(night ? 0x0a0a0d : 0x9aa3ad);
+  if (wallMesh) wallMesh.material.color.set(night ? 0x564b40 : 0xb8b4ac);
+  statusEl.textContent = night ? '야간 점등 — LED 발광' : '주간 소등 — 무광';
+}
+
+window.setLit = (v)=>{ state.lit=v; document.querySelectorAll('[data-lit]').forEach(c=>c.classList.toggle('on', c.dataset.lit===v)); applyLit(); };
+
+function buildColorSwatches(){
+  const wrap = document.getElementById('colors');
+  COLORS.forEach((c,i)=>{
+    const b = document.createElement('div');
+    b.className = 'sw' + (i===0?' on':'');
+    b.style.background = c.face;
+    b.title = c.name;
+    b.onclick = ()=>{ state.color=i; document.querySelectorAll('.sw').forEach((s,j)=>s.classList.toggle('on',j===i)); rebuildLetters(); };
+    wrap.appendChild(b);
+  });
+}
+
+// 벽돌/콘크리트 느낌 절차적 텍스처
+function makeWallTexture(){
+  const c = document.createElement('canvas'); c.width=c.height=512;
+  const x = c.getContext('2d');
+  x.fillStyle = '#6b6258'; x.fillRect(0,0,512,512);
+  for(let i=0;i<6000;i++){
+    const v = 40+Math.random()*60;
+    x.fillStyle = `rgba(${v},${v-6},${v-12},.05)`;
+    x.fillRect(Math.random()*512, Math.random()*512, 2, 2);
+  }
+  // 가로 줄눈
+  x.strokeStyle='rgba(0,0,0,.18)'; x.lineWidth=2;
+  for(let y=0;y<512;y+=64){ x.beginPath(); x.moveTo(0,y); x.lineTo(512,y); x.stroke(); }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(4,2.4);
+  return t;
+}
+
+function disposeGroup(g){ g.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material){ (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose()); } }); }
+
+function onResize(){
+  camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
+}
+
+function animate(){
+  requestAnimationFrame(animate);
+  controls.update();
+  composer.render();
+}
+
+// 현재 화면을 PNG로 저장 (AI 마감 컨트롤 입력용)
+window.exportPNG = function(){
+  composer.render();
+  const url = renderer.domElement.toDataURL('image/png');
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `sign_${state.text}_${state.lit}.png`;
+  a.click();
+  statusEl.textContent = 'PNG 저장됨 → ai_finish_test.py 입력으로 사용';
+};
+</script>
+</body>
+</html>
