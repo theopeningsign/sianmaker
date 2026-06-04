@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()
 app = Flask(__name__, static_folder='.', static_url_path='')
 
-GEMINI_MODEL = "gemini-3-pro-image"   # 고품질 이미지(텍스트 정확도↑). 저가형: gemini-2.5-flash-image / gemini-3.1-flash-image
+GEMINI_MODEL = "gemini-3.1-flash-image"   # 저가형 테스트. 고품질: gemini-3-pro-image
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
 
 # ── 선택값 → 영문 문구 사전 ──
