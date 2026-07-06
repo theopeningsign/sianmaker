@@ -358,7 +358,22 @@
 
   // ── 요소 조작 ──
   function addText(){ state.elements.push(mkText('텍스트')); renderAll(); }
-  function addLogo(e){ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=ev=>{ state.elements.push({type:'logo',img:ev.target.result,treat:'asis',size:'normal',colorMode:'original',color:'#ffffff'}); renderAll(); }; r.readAsDataURL(f); e.target.value=''; }
+  /* 업로드 이미지 다운스케일: 긴 변 1024px 제한 — API 페이로드/비용/지연 절감.
+     로고는 투명 배경 보존 위해 PNG 유지, 참고 이미지는 JPEG 재압축. */
+  function shrinkUpload(dataURL, asPng, cb){
+    const img=new Image();
+    img.onload=()=>{
+      const MAX=1024, sc=Math.min(1, MAX/Math.max(img.width,img.height));
+      if(sc===1){ cb(dataURL); return; }
+      const c=document.createElement('canvas');
+      c.width=Math.round(img.width*sc); c.height=Math.round(img.height*sc);
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+      cb(asPng ? c.toDataURL('image/png') : c.toDataURL('image/jpeg',0.85));
+    };
+    img.onerror=()=>cb(dataURL);
+    img.src=dataURL;
+  }
+  function addLogo(e){ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=ev=>{ shrinkUpload(ev.target.result, true, small=>{ state.elements.push({type:'logo',img:small,treat:'asis',size:'normal',colorMode:'original',color:'#ffffff'}); renderAll(); }); }; r.readAsDataURL(f); e.target.value=''; }
   // 요소 카드 안 인라인 칩
   function inlineChips(items, current, onPick){
     const w=document.createElement('div'); w.className='opts'; w.style.marginTop='6px';
@@ -391,7 +406,7 @@
   }
 
   // ── 참고 이미지 ──
-  function onRef(e){ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=ev=>{ state.refImage=ev.target.result; document.getElementById('refText').textContent='참고 이미지 (클릭해서 변경)'; document.getElementById('refPreview').innerHTML=`<img src="${ev.target.result}">`; }; r.readAsDataURL(f); e.target.value=''; }
+  function onRef(e){ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=ev=>{ shrinkUpload(ev.target.result, false, small=>{ state.refImage=small; document.getElementById('refText').textContent='참고 이미지 (클릭해서 변경)'; document.getElementById('refPreview').innerHTML=`<img src="${small}">`; }); }; r.readAsDataURL(f); e.target.value=''; }
 
   // ── 색상 피커 ──
   let pk=null;
@@ -458,6 +473,10 @@
       signType: localStorage.getItem('signType') || '전면간판',
       signSubType: localStorage.getItem('signSubType') || '채널간판',
       installMethod: localStorage.getItem('installMethod') || '맨벽',
+      // step3 실물 사이즈/비율 — 프롬프트의 스케일·비례 지시에 사용
+      signWidthCm:  localStorage.getItem('signWidth')  || null,
+      signHeightCm: localStorage.getItem('signHeight') || null,
+      signRatio:    localStorage.getItem('signRatio')  || null,
       elements, layout:state.layout, material:state.material, font:state.font,
       depth:state.depth, lightings:state.lightings,
       lightColor: state.lightColor==='custom'?state.lightColorHex:state.lightColor,

@@ -8,6 +8,10 @@ __pycache__/
 
 # 로컬 설정 (머신별)
 .claude/settings.local.json
+*.bak
+
+# 이전 프로젝트 보관 (로컬 전용 — GitHub에 올리지 않음)
+archive/
 
 # 환경변수 (API 키 등 절대 커밋 금지)
 .env

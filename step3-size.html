@@ -926,6 +926,24 @@
     }
   }
 
+  /* 저장용 리사이즈: 긴 변 1568px + JPEG 재압축.
+     원본 폰 사진(수 MB)을 그대로 localStorage에 넣으면 5MB 쿼터 초과로 저장 실패
+     (sessionStorage 폴백도 쿼터가 같아서 함께 실패 가능). 좌표(signBox)는 0~1 비율이라 영향 없음. */
+  function shrinkForStorage(dataURL, cb) {
+    const img = new Image();
+    img.onload = () => {
+      const MAX = 1568;
+      const sc = Math.min(1, MAX / Math.max(img.width, img.height));
+      if (sc === 1 && dataURL.length < 2500000) { cb(dataURL); return; }
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      cb(c.toDataURL('image/jpeg', 0.87));
+    };
+    img.onerror = () => cb(dataURL);
+    img.src = dataURL;
+  }
+
   /* ── 다음 단계로 ── */
   function goNext() {
     if (activeTab === 1) {
@@ -933,6 +951,7 @@
       localStorage.setItem('signHeight', sizeH);
       localStorage.setItem('signSizeMode', 'manual');
       localStorage.removeItem('signRatio');
+      proceedNext();
     } else {
       localStorage.setItem('signRatio',    signBoxRatio.toFixed(4));
       localStorage.setItem('signSizeMode', 'photo');
@@ -940,11 +959,20 @@
       localStorage.removeItem('signHeight');
       // 건물 사진 → Step 4 캔버스/합성용 저장 (크롭했으면 크롭본, 아니면 원본)
       const photoToSave = croppedDataURL || photoDataURL;
-      try { localStorage.setItem('buildingPhoto', photoToSave); }
-      catch(e) { sessionStorage.setItem('buildingPhoto', photoToSave); }
-      // 간판 영역 위치/크기(0~1) 저장 → 합성 위치
-      if (signBoxFrac) localStorage.setItem('signBox', JSON.stringify(signBoxFrac));
+      shrinkForStorage(photoToSave, (small) => {
+        try { localStorage.setItem('buildingPhoto', small); }
+        catch(e) {
+          try { sessionStorage.setItem('buildingPhoto', small); }
+          catch(e2) { alert('사진이 너무 커서 저장하지 못했어요.\n사진을 크롭(영역 지정)한 뒤 다시 시도해주세요.'); return; }
+        }
+        // 간판 영역 위치/크기(0~1) 저장 → 합성 위치
+        if (signBoxFrac) localStorage.setItem('signBox', JSON.stringify(signBoxFrac));
+        proceedNext();
+      });
     }
+  }
+
+  function proceedNext() {
     // 전면간판 · 채널간판 · 맨벽 → 채널 디자인(step4) 연결
     if (signType === '전면간판' && signSubType === '채널간판' && installMethod === '맨벽') {
       window.location.href = 'step4-design.html';

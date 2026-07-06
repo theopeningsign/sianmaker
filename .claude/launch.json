@@ -3,8 +3,9 @@
   "configurations": [
     {
       "name": "sianmaker",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["live-server", ".", "--port=3031", "--no-browser", "--quiet"],
+      "runtimeExecutable": "C:\\Users\\hyukj\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "runtimeArgs": ["-m", "http.server", "3031"],
+      "cwd": "C:\\Users\\hyukj\\cursor\\sianmaker",
       "port": 3031
     }
   ]
