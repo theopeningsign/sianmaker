@@ -119,8 +119,8 @@
 
 <main>
   <div class="section-title">
-    <h2>채널간판 디자인</h2>
-    <p>전면간판 · 채널간판 · 맨벽 — 원하는 간판을 세밀하게 설계하면 AI가 그대로 만들어요</p>
+    <h2 id="designTitle">간판 디자인</h2>
+    <p id="designSubtitle">원하는 간판을 세밀하게 설계하면 AI가 그대로 만들어요</p>
   </div>
   <button class="back-btn" onclick="location.href='step3-size.html'">← 이전 단계</button>
 
@@ -146,8 +146,8 @@
 
   <!-- 2. 재질 & 폰트 -->
   <div class="card">
-    <div class="grid2">
-      <div>
+    <div class="grid2" id="matFontGrid">
+      <div id="materialBlock">
         <h3><span class="n">2</span> 재질 / 마감</h3>
         <div class="opts" id="materialOpts"></div>
       </div>
@@ -158,15 +158,21 @@
     </div>
   </div>
 
-  <!-- 4. 입체 & 발광 -->
-  <div class="card">
+  <!-- 4. 입체 & 발광 (간판 종류에 따라 항목이 달라짐) -->
+  <div class="card" id="lightCard">
     <h3><span class="n">4</span> 입체 · 발광</h3>
-    <div class="row-lbl">채널 두께</div>
-    <div class="opts" id="depthOpts"></div>
-    <div class="row-lbl">발광 방식 <span style="font-weight:500;color:#aaa">(복수 선택 · 다시 누르면 해제 · 야간 점등 모습에 반영)</span></div>
-    <div class="opts" id="lightOpts"></div>
-    <div class="row-lbl">발광 색</div>
-    <div class="opts" id="lightColorOpts"></div>
+    <div id="depthBlock">
+      <div class="row-lbl">채널 두께</div>
+      <div class="opts" id="depthOpts"></div>
+    </div>
+    <div id="lightBlock">
+      <div class="row-lbl" id="lightLbl">발광 방식 <span style="font-weight:500;color:#aaa">(복수 선택 · 다시 누르면 해제 · 야간 점등 모습에 반영)</span></div>
+      <div class="opts" id="lightOpts"></div>
+    </div>
+    <div id="lightColorBlock">
+      <div class="row-lbl">발광 색</div>
+      <div class="opts" id="lightColorOpts"></div>
+    </div>
   </div>
 
   <!-- 5. 참고 이미지 -->
@@ -217,6 +223,33 @@
     {id:'halo',t:'후광채널',d:'뒤 후광'},
   ];
   const LIGHTCOLORS = [{id:'same',t:'면색과 동일'},{id:'white',t:'흰색'},{id:'custom',t:'직접 선택'}];
+
+  // ── 간판 종류별 UI 스키마 (server.py SUBTYPES와 동일 논리 — 매칭은 리스트 순서, 큐브가 포인트보다 먼저) ──
+  //   sides: 옆면(두께) 개념 존재 → 옆면색·두께·재질 메뉴 표시
+  //   illum: channel(전면/측면/후광) | halo_only(후광만) | neon·box(항상 발광, 방식 선택 없음) | none(비발광)
+  const SUBTYPE_CAPS = [
+    ['큐브',   {sides:false, illum:'box'}],
+    ['포인트', {sides:false, illum:'box'}],
+    ['채널',   {sides:true,  illum:'channel'}],
+    ['스카시', {sides:true,  illum:'halo_only'}],
+    ['네온',   {sides:false, illum:'neon'}],
+    ['플렉스', {sides:false, illum:'box'}],
+    ['스텐실', {sides:false, illum:'none'}],
+    ['금속',   {sides:false, illum:'halo_only'}],
+    ['패브릭', {sides:false, illum:'none'}],
+    ['현판',   {sides:false, illum:'none'}],
+    ['조형물', {sides:false, illum:'box'}],
+    ['접이식', {sides:false, illum:'none'}],
+    ['고정식', {sides:false, illum:'none'}],
+  ];
+  function uiCaps(){
+    const sub = localStorage.getItem('signSubType') || '';
+    const type = localStorage.getItem('signType') || '';
+    for (const [k,c] of SUBTYPE_CAPS) if (sub.includes(k)) return c;
+    if (type.includes('어닝')) return {sides:false, illum:'none'};
+    return {sides:true, illum:'channel'};   // 기본 = 채널
+  }
+  const CAPS = uiCaps();
   const LOGO_TREAT = [{id:'asis',t:'원본 그대로',d:'평면 인쇄'},{id:'channel',t:'입체 채널',d:'글자처럼 입체'},{id:'metal',t:'금속 입체',d:'메탈 가공'}];
   const LOGO_SIZE  = [{id:'small',t:'작게'},{id:'normal',t:'보통'},{id:'large',t:'크게'}];
   const LOGO_COLOR = [{id:'original',t:'원본 색 유지'},{id:'mono',t:'단색(직접 선택)'}];
@@ -268,11 +301,18 @@
           const s=document.createElement('span'); s.className='pv-ch'; s.textContent=c; s.style.fontFamily=fontOf();
           const face=faceOf(el,i), side=sideOf(el,i);
           s.style.color=face;
-          let sh=[`1px 1px 0 ${side}`,`2px 2px 0 ${side}`,`3px 3px 0 ${side}`,`4px 4px 0 ${side}`,`5px 5px 4px rgba(0,0,0,.4)`];
+          // 입체(옆면) 있는 종류만 두께 스택, 아니면 평면 그림자
+          let sh = CAPS.sides
+            ? [`1px 1px 0 ${side}`,`2px 2px 0 ${side}`,`3px 3px 0 ${side}`,`4px 4px 0 ${side}`,`5px 5px 4px rgba(0,0,0,.4)`]
+            : [`2px 2px 6px rgba(0,0,0,.45)`];
           const gc = state.lightColor==='white'?'#ffffff':(state.lightColor==='custom'?state.lightColorHex:null);
-          if(state.lightings.includes('front')) sh.push(`0 0 10px ${gc||face}`,`0 0 22px ${gc||face}aa`);
-          if(state.lightings.includes('side'))  sh.push(`0 0 12px ${gc||side}`,`0 0 22px ${gc||side}cc`);
-          if(state.lightings.includes('halo'))  sh.push(`0 0 22px ${gc||side}`,`0 0 44px ${gc||side}`);
+          if(CAPS.illum==='neon'||CAPS.illum==='box'){        // 항상 발광하는 종류
+            sh.push(`0 0 10px ${gc||face}`,`0 0 24px ${gc||face}aa`);
+          } else if(CAPS.illum!=='none'){                      // channel / halo_only: 선택된 방식만
+            if(CAPS.illum==='channel' && state.lightings.includes('front')) sh.push(`0 0 10px ${gc||face}`,`0 0 22px ${gc||face}aa`);
+            if(CAPS.illum==='channel' && state.lightings.includes('side'))  sh.push(`0 0 12px ${gc||side}`,`0 0 22px ${gc||side}cc`);
+            if(state.lightings.includes('halo'))  sh.push(`0 0 22px ${gc||side}`,`0 0 44px ${gc||side}`);
+          }
           s.style.textShadow=sh.join(',');
           wrap.appendChild(s);
         });
@@ -301,10 +341,10 @@
         inp.onchange=e=>{ el.text=e.target.value; renderAll(); };
         card.appendChild(inp);
 
-        // 앞면색
-        card.appendChild(colorBlock(el,'face','앞면 색상'));
-        // 옆면색
-        card.appendChild(colorBlock(el,'side','옆면(측면) 색상'));
+        // 앞면색 (평면 종류는 '글자 색상'으로 표기)
+        card.appendChild(colorBlock(el,'face', CAPS.sides ? '앞면 색상' : '글자 색상'));
+        // 옆면색 — 입체(옆면) 있는 종류에만
+        if(CAPS.sides) card.appendChild(colorBlock(el,'side','옆면(측면) 색상'));
       } else {
         const im=document.createElement('img'); im.src=el.img; im.style.maxHeight='64px'; im.style.borderRadius='8px'; im.style.marginTop='4px'; im.style.display='block';
         card.appendChild(im);
@@ -401,8 +441,27 @@
     chipGroup('materialOpts',MATERIALS,()=>state.material,id=>{state.material=id;renderOpts();});
     chipGroup('fontOpts',FONTS,()=>state.font,id=>{state.font=id;renderOpts();renderAll();});
     chipGroup('depthOpts',DEPTHS,()=>state.depth,id=>{state.depth=id;renderOpts();});
-    chipGroup('lightOpts',LIGHTS,()=>state.lightings,id=>{const i=state.lightings.indexOf(id);if(i>=0)state.lightings.splice(i,1);else state.lightings.push(id);renderOpts();renderPreview();},true);
+    // 발광방식: 종류별 선택지 (채널=3종 / 스카시·금속=후광만)
+    const lightItems = CAPS.illum==='channel' ? LIGHTS
+                     : CAPS.illum==='halo_only' ? [{id:'halo',t:'후광(백라이트)',d:'뒤에서 벽을 비추는 은은한 조명'}]
+                     : [];
+    if(lightItems.length)
+      chipGroup('lightOpts',lightItems,()=>state.lightings,id=>{const i=state.lightings.indexOf(id);if(i>=0)state.lightings.splice(i,1);else state.lightings.push(id);renderOpts();renderPreview();},true);
     chipGroup('lightColorOpts',LIGHTCOLORS,()=>state.lightColor,id=>{state.lightColor=id;renderOpts();renderPreview();if(id==='custom'){const fake=document.getElementById('lightColorOpts').lastChild;openPicker(fake,{lightcolor:true});}});
+  }
+
+  // 종류별 메뉴 표시/숨김 (비발광 간판에 발광 메뉴가 뜨는 모순 방지)
+  function applyCaps(){
+    const show=(id,on)=>{ const el=document.getElementById(id); if(el) el.style.display=on?'':'none'; };
+    show('materialBlock', CAPS.sides);                       // 재질: 입체 글자형만
+    if(!CAPS.sides) document.getElementById('matFontGrid').style.gridTemplateColumns='1fr';
+    show('depthBlock', CAPS.sides);                          // 두께: 입체 글자형만
+    show('lightBlock', CAPS.illum==='channel'||CAPS.illum==='halo_only');
+    if(CAPS.illum==='halo_only')
+      document.getElementById('lightLbl').innerHTML='조명 <span style="font-weight:500;color:#aaa">(선택 — 이 간판은 자체발광이 없어 후광 조명만 가능해요)</span>';
+    show('lightColorBlock', CAPS.illum!=='none');            // 발광색: 발광 가능 종류만
+    // 남는 항목이 하나도 없으면 카드 전체 숨김 (스텐실/패브릭/현판/어닝)
+    show('lightCard', CAPS.sides || CAPS.illum!=='none');
   }
 
   // ── 참고 이미지 ──
@@ -499,7 +558,15 @@
   }
 
   // 초기화
-  renderOpts(); renderAll();
+  // 상단 제목에 실제 선택 조합 표시 (step1~2 선택값)
+  (function(){
+    const t=localStorage.getItem('signType')||'', s=localStorage.getItem('signSubType')||'', m=localStorage.getItem('installMethod')||'';
+    if(s) document.getElementById('designTitle').textContent = s + ' 디자인';
+    else if(t) document.getElementById('designTitle').textContent = t + ' 디자인';
+    const path=[t,s,m].filter(Boolean).join(' · ');
+    if(path) document.getElementById('designSubtitle').textContent = path + ' — 원하는 간판을 세밀하게 설계하면 AI가 그대로 만들어요';
+  })();
+  applyCaps(); renderOpts(); renderAll();
 </script>
 </body>
 </html>

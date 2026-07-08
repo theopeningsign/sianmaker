@@ -63,8 +63,11 @@ READ_ORDER = {'horizontal':'left to right','twoline':'left to right, wrapping on
 # 간판 종류(step1) → 설치 형태. 프롬프트가 무조건 벽부착으로 나가는 것 방지.
 SIGN_KIND = {
  '전면간판':"a storefront fascia sign mounted FLAT against the building facade above/near the entrance",
- '돌출간판':("a PROJECTING blade sign mounted PERPENDICULAR to the wall on a metal bracket arm, "
-           "sticking out from the facade so it is readable when walking along the street; show it at a natural side angle with visible bracket"),
+ '돌출간판':("a PROJECTING blade sign (돌출간판): its sign panel sticks OUT from the facade, PERPENDICULAR to the wall "
+           "(the panel plane is parallel to the street direction), held by a metal bracket arm anchored to the wall. "
+           "CRITICAL ORIENTATION: the panel must NEVER lie flat against or parallel to the wall — from this camera the panel "
+           "appears strongly foreshortened at a three-quarter angle, with visible panel thickness and the bracket arm between "
+           "wall and panel. Render it as a physical object inside this photo's own camera view and perspective"),
  '어닝간판':"an AWNING sign — the lettering is applied on the front valance of a fabric awning/canopy over the storefront",
  '지주형간판':"a FREESTANDING pylon sign on its own post/structure standing on the ground, separate from the wall",
  '실내간판':"an INTERIOR sign mounted on an indoor wall inside the store",
@@ -353,9 +356,17 @@ def placement_phrase(box, sign_type=''):
         return "in the main sign area indicated by the customer. " + plane_line(sign_type)
     x0=round(box['x']*100); y0=round(box['y']*100)
     x1=round((box['x']+box['w'])*100); y1=round((box['y']+box['h'])*100)
+    # 돌출/지주형은 벽면 사각형을 "채우는" 물건이 아님 — 채우라고 하면 모델이 그 틀에
+    # 별도 사진을 끼워넣는(picture-in-picture) 오류를 냄. 위치 표시로만 사용.
+    projecting = any(k in (sign_type or '') for k in ('돌출','지주'))
+    if projecting:
+        fill_rule = ("That rectangle marks WHERE the sign is mounted — NOT its exact outline; "
+                     "render the sign there at a realistic physical scale as a 3D object in the scene.")
+    else:
+        fill_rule = "Center the sign within that exact area and size it to fill it."
     return (f"in {box_verbal(box)}. Precisely: STRICTLY inside the rectangle spanning {x0}%–{x1}% of the image width "
             f"(from the left edge) and {y0}%–{y1}% of the image height (from the top). "
-            f"Center the sign within that exact area and size it to fill it. {plane_line(sign_type)} "
+            f"{fill_rule} {plane_line(sign_type)} "
             "If any existing sign, lettering or fixture already occupies this target area, REMOVE it completely first "
             "and reconstruct the surface behind it, then install the new sign in its place — never blend the new sign with an old one. "
             "Do NOT place the sign anywhere else")
@@ -443,7 +454,9 @@ INTEGRATION: Match the photo's exact perspective, scale, white balance and light
     if design.get('_typeExample'):
         img_lines.append(f"input image #{n} is a COLLAGE OF REAL INSTALLED EXAMPLES of this exact sign type — imitate ONLY the "
                           "fabrication style, materials, mounting and lighting behavior shown there; NEVER copy any text, brand "
-                          "name, logo, or color scheme from it (its shops are unrelated)")
+                          "name, logo, or color scheme from it (its shops are unrelated), and NEVER paste, inset, or reproduce "
+                          "any part of that collage or its background/sky into the output — it is a style reference only, "
+                          "not content to insert")
     if img_lines:
         p += "\n\nINPUT IMAGES: input image #1 is the building photograph to edit; " + "; ".join(img_lines) + "."
     # Google 공식 편집 템플릿의 표준 문구("Keep everything else ... exactly the same") 정렬
@@ -458,18 +471,22 @@ INTEGRATION: Match the photo's exact perspective, scale, white balance and light
           "\n- The sign's construction matches the CONSTRUCTION section (correct sign type, not a different kind of sign)"
           "\n- The sign sits only inside the specified placement area; the rest of the photo is unchanged"
           + (" apart from the described evening lighting shift" if scene=='night' else "") +
+          "\n- The sign is a physical object photographed IN the scene (same sky/wall/lighting), NOT an inset, overlay, or pasted picture box"
           "\n- The image looks like a real photograph, not an illustration"
           "\n\nAVOID: garbled or gibberish text, misspelled or deformed Korean characters, extra strokes, "
           "merged or split glyphs, "
           + ("" if has_latin else "romanized text, English translations, ") +
-          "watermarks, cartoon/illustration/sticker look, altered surroundings.")
+          "watermarks, cartoon/illustration/sticker look, altered surroundings, "
+          "picture-in-picture insets, pasted photo patches, framed cutout boxes, any rectangular photo fragment "
+          "with its own different background/sky/lighting composited onto the scene.")
     return p
 
 # ── 세부종류 실사례 예시 이미지 (img/step2 실제 시공 사진 콜라주) ──
 # 텍스트 서술만으론 한계인 '시공 스타일'을 실물 사진으로 전달. 프롬프트가 텍스트 복사를 금지.
 _EXAMPLE_CACHE={}
 def example_dataurl(sign_type, sub):
-    s=(sub or '').replace('간판','').replace('-','').replace('/','')
+    # step2는 escId 변환값을 저장('현판/표찰'→'현판_표찰') — '_'도 제거해야 파일명과 일치
+    s=(sub or '').replace('간판','').replace('-','').replace('/','').replace('_','')
     if s=='포인트형전면': s='포인트형'
     fn=os.path.join(os.path.dirname(os.path.abspath(__file__)),'img','step2',f"{sign_type}-{s}.JPG")
     if fn in _EXAMPLE_CACHE: return _EXAMPLE_CACHE[fn]

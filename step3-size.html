@@ -731,21 +731,26 @@
     for (let i=3; i<md.length; i+=4){ if (md[i]>10){ painted=true; break; } }
     if (!painted) { alert('지울 부분을 먼저 칠해주세요.'); return; }
 
-    // 깨끗한 원본 사진(오버레이 없이)
-    const imgCvs = document.createElement('canvas');
-    imgCvs.width = canvas.width; imgCvs.height = canvas.height;
-    imgCvs.getContext('2d').drawImage(imgEl, 0, 0, canvas.width, canvas.height);
-    const imageUrl = imgCvs.toDataURL('image/png');
+    // 원본 해상도로 지우기 (표시 캔버스는 ≤672px라 그대로 쓰면 결과가 저해상도로 강등됨)
+    const MAXE = 1568;
+    const esc = Math.min(1, MAXE / Math.max(imgEl.naturalWidth, imgEl.naturalHeight));
+    const ew = Math.round(imgEl.naturalWidth * esc), eh = Math.round(imgEl.naturalHeight * esc);
 
-    // 흑백 마스크 (칠한 곳 흰색)
+    // 깨끗한 원본 사진(오버레이 없이, 원본 해상도)
+    const imgCvs = document.createElement('canvas');
+    imgCvs.width = ew; imgCvs.height = eh;
+    imgCvs.getContext('2d').drawImage(imgEl, 0, 0, ew, eh);
+    const imageUrl = imgCvs.toDataURL('image/jpeg', 0.92);
+
+    // 흑백 마스크 (칠한 곳 흰색) — 표시 캔버스 좌표의 마스크를 원본 해상도로 확대
     const mCvs = document.createElement('canvas');
-    mCvs.width = canvas.width; mCvs.height = canvas.height;
+    mCvs.width = ew; mCvs.height = eh;
     const mc = mCvs.getContext('2d');
-    mc.fillStyle = '#000'; mc.fillRect(0,0,mCvs.width,mCvs.height);
-    const src = eraseMaskCtx.getImageData(0,0,mCvs.width,mCvs.height);
-    const out = mc.getImageData(0,0,mCvs.width,mCvs.height);
-    for (let i=0;i<src.data.length;i+=4){
-      const on = src.data[i+3] > 10;
+    mc.fillStyle = '#000'; mc.fillRect(0,0,ew,eh);
+    mc.drawImage(eraseMaskCanvas, 0, 0, eraseMaskCanvas.width, eraseMaskCanvas.height, 0, 0, ew, eh);
+    const out = mc.getImageData(0,0,ew,eh);
+    for (let i=0;i<out.data.length;i+=4){
+      const on = out.data[i+3] > 10 && (out.data[i] > 60);   // 칠한 부분(빨강)만 흰색
       out.data[i]=out.data[i+1]=out.data[i+2]= on?255:0; out.data[i+3]=255;
     }
     mc.putImageData(out,0,0);
@@ -951,6 +956,20 @@
       localStorage.setItem('signHeight', sizeH);
       localStorage.setItem('signSizeMode', 'manual');
       localStorage.removeItem('signRatio');
+      const photoNow = croppedDataURL || photoDataURL;
+      if (photoNow) {
+        // 이 세션에서 사진도 올렸다면(사이즈+사진 둘 다 아는 고객) 사진·영역 함께 저장
+        shrinkForStorage(photoNow, (small) => {
+          try { localStorage.setItem('buildingPhoto', small); } catch(e) { try { sessionStorage.setItem('buildingPhoto', small); } catch(e2) {} }
+          if (signBoxFrac) localStorage.setItem('signBox', JSON.stringify(signBoxFrac));
+          else { localStorage.removeItem('signBox'); }
+          proceedNext();
+        });
+        return;
+      }
+      // 사진 없이 사이즈만 입력 → 이전 세션의 옛 사진/영역이 생성에 쓰이지 않게 제거
+      localStorage.removeItem('buildingPhoto'); sessionStorage.removeItem('buildingPhoto');
+      localStorage.removeItem('signBox');
       proceedNext();
     } else {
       localStorage.setItem('signRatio',    signBoxRatio.toFixed(4));
@@ -973,13 +992,8 @@
   }
 
   function proceedNext() {
-    // 전면간판 · 채널간판 · 맨벽 → 채널 디자인(step4) 연결
-    if (signType === '전면간판' && signSubType === '채널간판' && installMethod === '맨벽') {
-      window.location.href = 'step4-design.html';
-      return;
-    }
-    // 그 외 조합은 아직 준비 중
-    alert('[' + (signType || '간판') + ' › ' + (signSubType || '') + (installMethod ? ' › ' + installMethod : '') + ']\n이 조합의 디자인 단계는 준비 중이에요.\n(현재 전면간판·채널간판·맨벽 조합만 시안 생성 가능)');
+    // 모든 간판 종류 → 디자인(step4). 프롬프트 컴파일러가 종류별 스키마로 분기함.
+    window.location.href = 'step4-design.html';
   }
 
   function goTo(url) { window.location.href = url; }
